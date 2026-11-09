@@ -4,6 +4,7 @@ namespace Database\Seeders;
 
 use App\Models\User;
 use Illuminate\Database\Seeder;
+use Illuminate\Support\Str;
 
 class UserSeeder extends Seeder
 {
@@ -44,7 +45,7 @@ class UserSeeder extends Seeder
                 'email_verified_at' => $verified ? now() : null,
                 'two_factor_enabled' => false,
                 'notification_prefs' => $prefs,
-                'referral_code' => 'KW-'.mb_strtoupper(mb_substr($first, 0, 4)).$number,
+                'referral_code' => 'KW-'.Str::upper(Str::substr(Str::ascii($first), 0, 4)).$number,
             ])->save();
         }
 

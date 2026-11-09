@@ -103,10 +103,10 @@ class AuthController extends Controller
         ]);
     }
 
-    private function newReferralCode(string $firstName): string
+        private function newReferralCode(string $firstName): string
     {
-        $letters = preg_replace('/[^\p{L}]/u', '', $firstName);
-        $prefix = 'KW-'.mb_strtoupper(mb_substr($letters, 0, 4));
+        $letters = preg_replace('/[^A-Za-z]/', '', Str::ascii($firstName));
+        $prefix = 'KW-'.strtoupper(substr($letters, 0, 4));
 
         do {
             $code = $prefix.str_pad((string) random_int(0, 9999), 4, '0', STR_PAD_LEFT);
