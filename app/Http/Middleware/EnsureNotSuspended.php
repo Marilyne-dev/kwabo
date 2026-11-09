@@ -8,13 +8,15 @@ use Symfony\Component\HttpFoundation\Response;
 
 class EnsureNotSuspended
 {
-    /**
-     * Handle an incoming request.
-     *
-     * @param  Closure(Request): (Response)  $next
-     */
     public function handle(Request $request, Closure $next): Response
     {
+        $user = $request->user();
+
+        if ($user && $user->isSuspended()) {
+            $user->tokens()->delete(); // un compte suspendu perd l'accès tout de suite
+            return response()->json(['message' => 'Ce compte est suspendu. Contactez KWABO.'], 403);
+        }
+
         return $next($request);
     }
 }

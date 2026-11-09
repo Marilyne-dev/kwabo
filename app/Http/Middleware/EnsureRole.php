@@ -8,13 +8,14 @@ use Symfony\Component\HttpFoundation\Response;
 
 class EnsureRole
 {
-    /**
-     * Handle an incoming request.
-     *
-     * @param  Closure(Request): (Response)  $next
-     */
-    public function handle(Request $request, Closure $next): Response
+    public function handle(Request $request, Closure $next, string ...$roles): Response
     {
+        $user = $request->user();
+
+        if (! $user || ! in_array($user->role, $roles, true)) {
+            return response()->json(['message' => 'Accès refusé.'], 403);
+        }
+
         return $next($request);
     }
 }
