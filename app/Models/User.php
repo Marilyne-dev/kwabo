@@ -24,7 +24,7 @@ class User extends Authenticatable
         'two_factor_enabled', 'referral_code', 'referred_by', 'notification_prefs',
     ];
 
-    protected $hidden = ['password', 'remember_token'];
+       protected $hidden = ['password', 'remember_token', 'two_factor_secret'];
 
     protected function casts(): array
     {
@@ -34,6 +34,7 @@ class User extends Authenticatable
             'password' => 'hashed',
             'two_factor_enabled' => 'boolean',
             'notification_prefs' => 'array',
+               'two_factor_secret' => 'encrypted',
         ];
     }
 

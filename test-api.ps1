@@ -184,20 +184,43 @@ if ($docId) {
 }
 
 # ---------- Test 7 : double authentification ----------
+# ---------- Test 7 : double authentification (application d'authentification) ----------
 Write-Host ""
 Write-Host "== Test 7 : double authentification =="
-Tinker "App\Models\User::where('email','client@kwabo.demo')->update(['two_factor_enabled'=>true]);"
+
+function Totp($secret) {
+  $out = php artisan tinker --execute="echo (new \PragmaRX\Google2FA\Google2FA())->getCurrentOtp('$secret');" 2>$null
+  return [regex]::Match(($out -join " "), '\d{6}').Value
+}
+
 try {
+  $r = Req "Post" "/two-factor/setup" $null $token
+  Check "7a. preparation : cle secrete et QR code recus" ($r.Status -eq 200 -and $r.Json.secret -and $r.Json.qr_svg -match "<svg") (Short $r.Raw)
+  $secret = $r.Json.secret
+
+  $r = Req "Post" "/two-factor/enable" @{ code = "000000" } $token
+  Check "7b. activation avec un mauvais code refusee (422)" ($r.Status -eq 422) (Short $r.Raw)
+
+  $r = Req "Post" "/two-factor/enable" @{ code = (Totp $secret) } $token
+  Check "7c. activation avec le bon code" ($r.Status -eq 200 -and $r.Json.data.two_factor_enabled -eq $true) (Short $r.Raw)
+
   $r = Req "Post" "/login" @{ email = "client@kwabo.demo"; password = "Demo1234" }
-  Check "7a. sans code : needs_code et pas de jeton" ($r.Status -eq 200 -and $r.Json.needs_code -eq $true -and -not $r.Json.token) (Short $r.Raw)
+  Check "7d. connexion sans code : needs_code et pas de jeton" ($r.Status -eq 200 -and $r.Json.needs_code -eq $true -and -not $r.Json.token) (Short $r.Raw)
+
   $r = Req "Post" "/login" @{ email = "client@kwabo.demo"; password = "Demo1234"; code = "000000" }
-  Check "7b. mauvais code refuse (422)" ($r.Status -eq 422) (Short $r.Raw)
-  $code = LastCode
-  $r = Req "Post" "/login" @{ email = "client@kwabo.demo"; password = "Demo1234"; code = $code }
-  Check "7c. bon code : jeton recu" ($r.Status -eq 200 -and $r.Json.token) (Short $r.Raw)
+  Check "7e. mauvais code refuse (422)" ($r.Status -eq 422) (Short $r.Raw)
+
+  $r = Req "Post" "/login" @{ email = "client@kwabo.demo"; password = "Demo1234"; code = (Totp $secret) }
+  Check "7f. bon code : jeton recu" ($r.Status -eq 200 -and $r.Json.token) (Short $r.Raw)
+
+  $r = Req "Post" "/two-factor/disable" @{ password = "mauvais" } $token
+  Check "7g. desactivation avec un mauvais mot de passe refusee (422)" ($r.Status -eq 422) (Short $r.Raw)
+
+  $r = Req "Post" "/two-factor/disable" @{ password = "Demo1234" } $token
+  Check "7h. desactivation avec le bon mot de passe" ($r.Status -eq 200 -and $r.Json.data.two_factor_enabled -eq $false) (Short $r.Raw)
 }
 finally {
-  Tinker "App\Models\User::where('email','client@kwabo.demo')->update(['two_factor_enabled'=>false]);"
+  Tinker "App\Models\User::where('email','client@kwabo.demo')->update(['two_factor_enabled'=>false,'two_factor_secret'=>null]);"
 }
 
 # ---------- Test 8 : securite ----------

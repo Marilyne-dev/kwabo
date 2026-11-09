@@ -4,6 +4,7 @@ use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\DocumentController;
 use App\Http\Controllers\Api\ServiceController;
 use App\Http\Controllers\Api\ServiceRequestController;
+use App\Http\Controllers\Api\TwoFactorController;
 use Illuminate\Support\Facades\Route;
 
 Route::get('/ping', fn () => ['message' => 'API KWABO OK']);
@@ -26,6 +27,11 @@ Route::middleware(['auth:sanctum', 'not.suspended'])->group(function () {
     Route::get('/me', [AuthController::class, 'me']);
     Route::post('/logout', [AuthController::class, 'logout']);
     Route::post('/logout-all', [AuthController::class, 'logoutAll']);
+
+    // Double authentification (clients et équipe)
+    Route::post('/two-factor/setup', [TwoFactorController::class, 'setup']);
+    Route::post('/two-factor/enable', [TwoFactorController::class, 'enable']);
+    Route::post('/two-factor/disable', [TwoFactorController::class, 'disable']);
 
     // Téléchargement d'un document (le droit d'accès est vérifié dans le contrôleur)
     Route::get('/documents/{document}/download', [DocumentController::class, 'download']);
