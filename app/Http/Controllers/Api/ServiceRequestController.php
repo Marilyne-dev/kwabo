@@ -14,20 +14,41 @@ use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Validation\Rule;
 
 class ServiceRequestController extends Controller
 {
     // Mes demandes (filtre facultatif : ?status=pending|active|done|cancelled).
+       // Mes demandes. Filtres facultatifs : ?status=pending|active|done|cancelled, ?search=mot, ?per_page=20
     public function index(Request $request): AnonymousResourceCollection
     {
+        $request->validate([
+            'status' => ['nullable', Rule::in(['pending', 'active', 'done', 'cancelled'])],
+            'search' => ['nullable', 'string', 'max:100'],
+            'per_page' => ['nullable', 'integer', 'min:1', 'max:50'],
+        ]);
+
+        $search = trim((string) $request->query('search', ''));
+
         $requests = $request->user()->serviceRequests()
             ->with(['service.category', 'operator'])
             ->when($request->query('status'), fn ($q, $status) => $q->where('status', $status))
+            ->when($search !== '', function ($q) use ($search) {
+                $like = '%'.str_replace(['\\', '%', '_'], ['\\\\', '\\%', '\\_'], $search).'%';
+
+                $q->where(fn ($w) => $w
+                    ->where('title', 'like', $like)
+                    ->orWhere('tracking', 'like', $like)
+                    ->orWhere('city', 'like', $like)
+                    ->orWhereHas('service', fn ($s) => $s->where('name', 'like', $like)));
+            })
             ->latest()
-            ->paginate(20);
+            ->paginate((int) $request->query('per_page', 20));
 
         return ServiceRequestResource::collection($requests);
     }
+
+     private const DETAIL_RELATIONS = ['service.category', 'operator', 'histories', 'documents', 'invoices', 'review'];
 
     public function store(StoreServiceRequestRequest $request): JsonResponse
     {
@@ -35,17 +56,31 @@ class ServiceRequestController extends Controller
         $user = $request->user();
         $service = Service::where('slug', $data['service'])->where('available', true)->firstOrFail();
 
-        $serviceRequest = $user->serviceRequests()->create([
-            'service_id' => $service->id,
-            'title' => $data['title'] ?? $service->name,
-            'city' => $data['city'] ?? null,
-            'urgency' => $data['urgency'] ?? 'normal',
-            'budget' => $data['budget'] ?? null,
-            'description' => $data['description'] ?? null,
-            'details' => $data['details'] ?? [],
-        ])->refresh();
+        $serviceRequest = DB::transaction(function () use ($request, $data, $user, $service) {
+            $serviceRequest = $user->serviceRequests()->create([
+                'service_id' => $service->id,
+                'title' => $data['title'] ?? $service->name,
+                'city' => $data['city'] ?? null,
+                'urgency' => $data['urgency'] ?? 'normal',
+                'budget' => $data['budget'] ?? null,
+                'description' => $data['description'] ?? null,
+                'details' => $data['details'] ?? [],
+            ])->refresh();
 
-        $serviceRequest->log('Demande reçue');
+            $serviceRequest->log('Demande reçue');
+
+            // Fichiers joints (ex. ordonnance) : stockés en privé, listés dans les documents.
+            foreach ($request->file('files', []) as $file) {
+                $serviceRequest->documents()->create([
+                    'uploaded_by' => $user->id,
+                    'type' => 'attachment',
+                    'name' => $file->getClientOriginalName(),
+                    'path' => $file->store("requests/{$serviceRequest->id}", 'local'),
+                ]);
+            }
+
+            return $serviceRequest;
+        });
 
         AppNotification::create([
             'user_id' => $user->id,
@@ -59,7 +94,7 @@ class ServiceRequestController extends Controller
             'link' => "/admin/requests/{$serviceRequest->id}",
         ]);
 
-        return (new ServiceRequestResource($serviceRequest->load(['service.category', 'histories'])))
+        return (new ServiceRequestResource($serviceRequest->load(self::DETAIL_RELATIONS)))
             ->response()
             ->setStatusCode(201);
     }
@@ -68,7 +103,7 @@ class ServiceRequestController extends Controller
     {
         Gate::authorize('view', $serviceRequest);
 
-        return new ServiceRequestResource($serviceRequest->load(['service.category', 'operator', 'histories']));
+        return new ServiceRequestResource($serviceRequest->load(self::DETAIL_RELATIONS));
     }
 
     public function cancel(ServiceRequest $serviceRequest): ServiceRequestResource
@@ -89,6 +124,6 @@ class ServiceRequestController extends Controller
                 ->update(['status' => Invoice::CANCELLED]);
         });
 
-        return new ServiceRequestResource($serviceRequest->fresh(['service.category', 'operator', 'histories']));
+                return new ServiceRequestResource($serviceRequest->fresh(self::DETAIL_RELATIONS));
     }
 }

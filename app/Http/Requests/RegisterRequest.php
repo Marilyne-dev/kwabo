@@ -27,7 +27,7 @@ class RegisterRequest extends FormRequest
             'email' => ['required', 'email:rfc', 'max:255', 'unique:users,email'],
             'phone' => ['required', 'string', 'max:30'], // numéro complet, indicatif compris (ex. +33 6 12 34 56 78)
             'country' => ['required', 'string', 'max:80'],
-            'password' => ['required', 'string', 'min:8'],
+            'password' => ['required', 'string', 'min:8', 'regex:/[A-Z]/', 'regex:/[0-9]/'],
             'sponsor_code' => ['nullable', 'string', 'exists:users,referral_code'],
             'device_name' => ['nullable', 'string', 'max:100'],
         ];
@@ -45,7 +45,9 @@ class RegisterRequest extends FormRequest
             'country.required' => 'Le pays est obligatoire.',
             'password.required' => 'Le mot de passe est obligatoire.',
             'password.min' => 'Le mot de passe doit contenir au moins 8 caractères.',
+            'password.regex' => 'Le mot de passe doit contenir au moins 1 majuscule et 1 chiffre.',
             'sponsor_code.exists' => 'Ce code de parrainage n\'existe pas.',
+            'code.required' => 'Le code de double authentification est obligatoire.',
         ];
     }
 }

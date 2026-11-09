@@ -7,9 +7,12 @@ use App\Http\Requests\LoginRequest;
 use App\Http\Requests\RegisterRequest;
 use App\Http\Resources\UserResource;
 use App\Models\User;
+use App\Support\OneTimeCode;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 
 class AuthController extends Controller
@@ -34,10 +37,52 @@ class AuthController extends Controller
             'notification_prefs' => array_fill_keys(['received', 'quote', 'started', 'report', 'done', 'payment'], true),
         ])->refresh();
 
+        $this->sendCode($user, 'verify');
+
+        // Pas de jeton : le compte doit d'abord confirmer son e-mail.
         return response()->json([
             'user' => new UserResource($user),
-            'token' => $user->createToken($data['device_name'] ?? 'web')->plainTextToken,
+            'needs_verification' => true,
+            'message' => 'Un code de confirmation a été envoyé à votre e-mail.',
         ], 201);
+    }
+
+    // Confirmation de l'e-mail avec le code reçu.
+    public function verifyEmail(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'email' => ['required', 'email'],
+            'code' => ['required', 'string', 'max:10'],
+            'device_name' => ['nullable', 'string', 'max:100'],
+        ]);
+
+        $user = User::where('email', strtolower(trim($data['email'])))->first();
+
+        if (! $user || ! OneTimeCode::check('verify', $user, $data['code'])) {
+            throw ValidationException::withMessages(['code' => 'Code incorrect ou expiré.']);
+        }
+
+        if ($user->email_verified_at === null) {
+            $user->forceFill(['email_verified_at' => now()])->save();
+        }
+
+        return response()->json([
+            'user' => new UserResource($user->refresh()),
+            'token' => $user->createToken($data['device_name'] ?? 'web')->plainTextToken,
+        ]);
+    }
+
+    // Renvoi du code (réponse toujours identique, pour ne pas révéler quels e-mails existent).
+    public function resendVerification(Request $request): JsonResponse
+    {
+        $data = $request->validate(['email' => ['required', 'email']]);
+        $user = User::where('email', strtolower(trim($data['email'])))->first();
+
+        if ($user && $user->email_verified_at === null) {
+            $this->sendCode($user, 'verify');
+        }
+
+        return response()->json(['message' => 'Si ce compte existe, un nouveau code vient d\'être envoyé.']);
     }
 
     // Connexion des clients (site web et application mobile).
@@ -97,13 +142,54 @@ class AuthController extends Controller
             throw ValidationException::withMessages(['email' => 'Compte équipe : connectez-vous sur l\'interface d\'administration.']);
         }
 
+        // E-mail non confirmé (clients) : connexion refusée, nouveau code envoyé.
+        if (! $staffPortal && $user->email_verified_at === null) {
+            $this->sendCode($user, 'verify');
+
+            return response()->json([
+                'message' => 'Confirmez votre e-mail : un code vient de vous être envoyé.',
+                'needs_verification' => true,
+            ], 403);
+        }
+
+        // Double authentification : 1er envoi sans code → on demande le code, 2e envoi avec code → on connecte.
+        if ($user->two_factor_enabled) {
+            $code = $data['code'] ?? null;
+
+            if (! $code) {
+                $this->sendCode($user, 'login');
+
+                return response()->json([
+                    'needs_code' => true,
+                    'message' => 'Un code à 6 chiffres vient d\'être envoyé par e-mail.',
+                ]);
+            }
+
+            if (! OneTimeCode::check('login', $user, $code)) {
+                throw ValidationException::withMessages(['code' => 'Code incorrect ou expiré.']);
+            }
+        }
+
         return response()->json([
             'user' => new UserResource($user),
             'token' => $user->createToken($data['device_name'] ?? ($staffPortal ? 'admin' : 'web'))->plainTextToken,
         ]);
     }
 
-        private function newReferralCode(string $firstName): string
+    private function sendCode(User $user, string $purpose): void
+    {
+        $code = OneTimeCode::issue($purpose, $user);
+        $subject = $purpose === 'verify' ? 'KWABO : confirmez votre e-mail' : 'KWABO : votre code de connexion';
+        $text = "Votre code KWABO : {$code}\n\nIl est valable 15 minutes. Si vous n'êtes pas à l'origine de cette demande, ignorez ce message.";
+
+        try {
+            Mail::raw($text, fn ($m) => $m->to($user->email)->subject($subject));
+        } catch (\Throwable $e) {
+            report($e); // l'échec d'envoi ne doit pas bloquer l'API
+        }
+    }
+
+    private function newReferralCode(string $firstName): string
     {
         $letters = preg_replace('/[^A-Za-z]/', '', Str::ascii($firstName));
         $prefix = 'KW-'.strtoupper(substr($letters, 0, 4));

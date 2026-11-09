@@ -22,6 +22,7 @@ class LoginRequest extends FormRequest
             'email' => ['required', 'email'],
             'password' => ['required', 'string'],
             'device_name' => ['nullable', 'string', 'max:100'], // ex. « web » ou « mobile »
+            'code' => ['nullable', 'string', 'max:10'], // code de double authentification
         ];
     }
 

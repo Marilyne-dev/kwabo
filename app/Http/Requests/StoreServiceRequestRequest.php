@@ -13,7 +13,7 @@ class StoreServiceRequestRequest extends FormRequest
         return true;
     }
 
-    public function rules(): array
+       public function rules(): array
     {
         $rules = [
             'service' => ['required', 'string', Rule::exists('services', 'slug')->where('available', true)],
@@ -29,6 +29,13 @@ class StoreServiceRequestRequest extends FormRequest
             $rules['details.'.$field['name']] = [empty($field['required']) ? 'nullable' : 'required'];
         }
 
+        foreach ($this->serviceFields(files: true) as $field) {
+            $rules['files.'.$field['name']] = [
+                empty($field['required']) ? 'nullable' : 'required',
+                'file', 'max:10240', 'mimes:pdf,jpg,jpeg,png',
+            ];
+        }
+
         return $rules;
     }
 
@@ -38,6 +45,10 @@ class StoreServiceRequestRequest extends FormRequest
 
         foreach ($this->serviceFields() as $field) {
             $attributes['details.'.$field['name']] = $field['label'] ?? $field['name'];
+        }
+
+        foreach ($this->serviceFields(files: true) as $field) {
+            $attributes['files.'.$field['name']] = $field['label'] ?? $field['name'];
         }
 
         return $attributes;
@@ -50,16 +61,19 @@ class StoreServiceRequestRequest extends FormRequest
             'service.exists' => 'Ce service n\'existe pas ou n\'est plus disponible.',
             'urgency.in' => 'L\'urgence doit être « normal » ou « urgent ».',
             'details.*.required' => 'Le champ « :attribute » est obligatoire.',
+            'files.*.required' => 'Le fichier « :attribute » est obligatoire.',
+            'files.*.mimes' => 'Le fichier « :attribute » doit être un PDF, JPG ou PNG.',
+            'files.*.max' => 'Le fichier « :attribute » ne doit pas dépasser 10 Mo.',
         ];
     }
 
-    // Champs du formulaire propres au service choisi (hors fichiers).
-    private function serviceFields(): array
+    // Champs du formulaire propres au service choisi : champs normaux, ou champs fichier si $files = true.
+    private function serviceFields(bool $files = false): array
     {
         $service = Service::where('slug', $this->input('service'))->first();
 
         return collect($service?->form_fields ?? [])
-            ->filter(fn ($f) => ! empty($f['name']) && ($f['type'] ?? '') !== 'file')
+            ->filter(fn ($f) => ! empty($f['name']) && ((($f['type'] ?? '') === 'file') === $files))
             ->values()
             ->all();
     }
