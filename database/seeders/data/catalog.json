@@ -1,0 +1,506 @@
+{
+  "categories": [
+    {
+      "slug": "immobilier",
+      "name": "Immobilier & Foncier",
+      "short": "Immobilier",
+      "blurb": "Construire, investir et sécuriser vos terrains.",
+      "icon": "home-modern",
+      "sort_order": 1
+    },
+    {
+      "slug": "famille",
+      "name": "Famille & Santé",
+      "short": "Famille",
+      "blurb": "Être présent pour vos proches, même à distance.",
+      "icon": "users",
+      "sort_order": 2
+    },
+    {
+      "slug": "demarches",
+      "name": "Démarches & Administratif",
+      "short": "Démarches",
+      "blurb": "Vos papiers et vos dossiers, sans vous déplacer.",
+      "icon": "document-text",
+      "sort_order": 3
+    },
+    {
+      "slug": "logistique",
+      "name": "Logistique & Transferts",
+      "short": "Logistique",
+      "blurb": "Envoyer de l'argent, des colis et des cadeaux.",
+      "icon": "truck",
+      "sort_order": 4
+    }
+  ],
+  "services": [
+    {
+      "slug": "suivi-chantier",
+      "category": "immobilier",
+      "name": "Suivi de chantier",
+      "price_label": "120-200 €/mois",
+      "short": "Visite hebdo, vidéo 360°, contrôle matériaux, rapport écrit.",
+      "included": [
+        "Visite hebdomadaire du chantier",
+        "Vidéo 360° de l'avancement",
+        "Contrôle des matériaux",
+        "Rapport écrit"
+      ],
+      "form_fields": [
+        {
+          "name": "adresse",
+          "label": "Adresse exacte du chantier",
+          "required": true
+        },
+        {
+          "name": "gps",
+          "label": "Coordonnées GPS (si disponibles)",
+          "placeholder": "6.3703, 2.3912"
+        },
+        {
+          "name": "macon",
+          "label": "Nom et contact du maçon",
+          "placeholder": "Nom, +229…"
+        },
+        {
+          "name": "stade",
+          "label": "Stade d'avancement actuel",
+          "type": "select",
+          "options": [
+            "Terrain nu",
+            "Fondations",
+            "Élévation des murs",
+            "Toiture",
+            "Finitions"
+          ]
+        },
+        {
+          "name": "visite",
+          "label": "Préférence de visite (jour/heure)",
+          "placeholder": "Le vendredi matin"
+        }
+      ],
+      "icon": "building-office-2",
+      "popular": true,
+      "available": true
+    },
+    {
+      "slug": "investissement",
+      "category": "immobilier",
+      "name": "Investissement immobilier",
+      "price_label": "Dès 300 €/dossier",
+      "short": "Recherche de biens, visite et expertise, gestion locative.",
+      "included": [
+        "Recherche de biens",
+        "Visite et expertise",
+        "Gestion locative"
+      ],
+      "form_fields": [
+        {
+          "name": "bien",
+          "label": "Type de bien recherché",
+          "type": "select",
+          "options": [
+            "Terrain",
+            "Maison",
+            "Appartement",
+            "Immeuble de rapport"
+          ]
+        },
+        {
+          "name": "zone",
+          "label": "Zone souhaitée",
+          "placeholder": "Abomey-Calavi, Fidjrossè…"
+        },
+        {
+          "name": "objectif",
+          "label": "Objectif",
+          "type": "select",
+          "options": [
+            "Y habiter",
+            "Mettre en location",
+            "Revendre"
+          ]
+        }
+      ],
+      "icon": "home-modern",
+      "popular": true,
+      "available": true
+    },
+    {
+      "slug": "foncier",
+      "category": "immobilier",
+      "name": "Accompagnement foncier",
+      "price_label": "Dès 500 €",
+      "short": "Vérification de titre ANDF, notaire, état des lieux GPS.",
+      "included": [
+        "Vérification du titre auprès de l'ANDF",
+        "Accompagnement chez le notaire",
+        "État des lieux GPS"
+      ],
+      "form_fields": [
+        {
+          "name": "parcelle",
+          "label": "Localisation de la parcelle",
+          "required": true
+        },
+        {
+          "name": "titre",
+          "label": "Numéro de titre (si disponible)"
+        },
+        {
+          "name": "besoin",
+          "label": "Votre besoin",
+          "type": "select",
+          "options": [
+            "Vérifier un titre",
+            "Acheter un terrain",
+            "Régulariser un terrain"
+          ]
+        }
+      ],
+      "icon": "map-pin",
+      "popular": false,
+      "available": true
+    },
+    {
+      "slug": "soutien-famille",
+      "category": "famille",
+      "name": "Soutien famille quotidien",
+      "price_label": "15-45 €/mois",
+      "short": "Factures SBEE/SONEB, recharge, courses, visite aux parents.",
+      "included": [
+        "Paiement des factures SBEE et SONEB",
+        "Recharges téléphoniques",
+        "Courses",
+        "Visite aux parents"
+      ],
+      "form_fields": [
+        {
+          "name": "beneficiaire",
+          "label": "Nom du proche concerné",
+          "required": true
+        },
+        {
+          "name": "telephone",
+          "label": "Téléphone du proche",
+          "type": "tel"
+        },
+        {
+          "name": "frequence",
+          "label": "Fréquence souhaitée",
+          "type": "select",
+          "options": [
+            "Chaque semaine",
+            "Chaque mois",
+            "Ponctuelle"
+          ]
+        }
+      ],
+      "icon": "hand-raised",
+      "popular": false,
+      "available": true
+    },
+    {
+      "slug": "sante",
+      "category": "famille",
+      "name": "Santé de vos proches",
+      "price_label": "Dès 25 €/mois",
+      "short": "Paiement de l'hôpital, livraison de médicaments, mutuelle.",
+      "included": [
+        "Paiement de l'hôpital",
+        "Livraison de médicaments",
+        "Mutuelle"
+      ],
+      "form_fields": [
+        {
+          "name": "patient",
+          "label": "Nom du patient",
+          "required": true
+        },
+        {
+          "name": "pathologie",
+          "label": "Pathologie déclarée"
+        },
+        {
+          "name": "etablissement",
+          "label": "Établissement de santé"
+        },
+        {
+          "name": "budgetMensuel",
+          "label": "Budget mensuel alloué",
+          "placeholder": "50 €/mois"
+        },
+        {
+          "name": "ordonnance",
+          "label": "Ordonnance",
+          "type": "file",
+          "accept": ".pdf,.jpg,.jpeg,.png"
+        }
+      ],
+      "icon": "heart",
+      "popular": true,
+      "available": true
+    },
+    {
+      "slug": "evenements",
+      "category": "famille",
+      "name": "Événements à distance",
+      "price_label": "Dès 300 €",
+      "short": "Mariage, baptême, funérailles, dot, avec diffusion en direct.",
+      "included": [
+        "Mariage, baptême, funérailles, dot",
+        "Organisation sur place",
+        "Diffusion en direct incluse"
+      ],
+      "form_fields": [
+        {
+          "name": "evenement",
+          "label": "Type d'événement",
+          "type": "select",
+          "options": [
+            "Mariage",
+            "Baptême",
+            "Funérailles",
+            "Dot",
+            "Autre"
+          ]
+        },
+        {
+          "name": "dateEvenement",
+          "label": "Date prévue",
+          "type": "date"
+        },
+        {
+          "name": "lieu",
+          "label": "Lieu"
+        }
+      ],
+      "icon": "calendar-days",
+      "popular": false,
+      "available": true
+    },
+    {
+      "slug": "faire-venir",
+      "category": "demarches",
+      "name": "Faire venir un proche",
+      "price_label": "Dès 200 €/dossier",
+      "short": "Dossier visa complet, invitation, inscription école ou fac.",
+      "included": [
+        "Dossier de visa complet",
+        "Lettre d'invitation",
+        "Inscription école ou université"
+      ],
+      "form_fields": [
+        {
+          "name": "parente",
+          "label": "Lien de parenté",
+          "required": true
+        },
+        {
+          "name": "visa",
+          "label": "Type de visa visé",
+          "type": "select",
+          "options": [
+            "Visite familiale",
+            "Études",
+            "Regroupement familial",
+            "Tourisme",
+            "Autre"
+          ]
+        },
+        {
+          "name": "destination",
+          "label": "Pays de destination",
+          "required": true
+        },
+        {
+          "name": "depart",
+          "label": "Date de départ souhaitée",
+          "type": "date"
+        },
+        {
+          "name": "obtenus",
+          "label": "Documents déjà obtenus",
+          "placeholder": "Passeport, acte de naissance…"
+        }
+      ],
+      "icon": "paper-airplane",
+      "popular": true,
+      "available": true
+    },
+    {
+      "slug": "comptabilite",
+      "category": "demarches",
+      "name": "Comptabilité & Entreprise",
+      "price_label": "Dès 80 €/mois",
+      "short": "Création de société APIEx, tenue compta, déclarations fiscales.",
+      "included": [
+        "Création de société à l'APIEx",
+        "Tenue de la comptabilité",
+        "Déclarations fiscales"
+      ],
+      "form_fields": [
+        {
+          "name": "besoinCompta",
+          "label": "Votre besoin",
+          "type": "select",
+          "options": [
+            "Créer une société",
+            "Tenir ma comptabilité",
+            "Faire mes déclarations"
+          ]
+        },
+        {
+          "name": "activite",
+          "label": "Secteur d'activité"
+        }
+      ],
+      "icon": "briefcase",
+      "popular": true,
+      "available": true
+    },
+    {
+      "slug": "administratif",
+      "category": "demarches",
+      "name": "Assistance administrative",
+      "price_label": "Dès 50 €/démarche",
+      "short": "Passeport, CNI, acte de naissance, casier, immatriculation.",
+      "included": [
+        "Passeport et CNI",
+        "Acte de naissance",
+        "Casier judiciaire",
+        "Immatriculation"
+      ],
+      "form_fields": [
+        {
+          "name": "document",
+          "label": "Document ou démarche",
+          "type": "select",
+          "options": [
+            "Passeport",
+            "CNI",
+            "Acte de naissance",
+            "Casier judiciaire",
+            "Immatriculation",
+            "Autre"
+          ]
+        },
+        {
+          "name": "pourQui",
+          "label": "Pour qui ?",
+          "placeholder": "Moi-même, mon père…"
+        }
+      ],
+      "icon": "identification",
+      "popular": false,
+      "available": true
+    },
+    {
+      "slug": "transfert",
+      "category": "logistique",
+      "name": "Transfert d'argent optimisé",
+      "price_label": "2 % max",
+      "short": "Meilleur taux garanti, Mobile Money ou banque, en moins de 24 h.",
+      "included": [
+        "Meilleur taux garanti",
+        "Mobile Money ou banque",
+        "Arrivée en moins de 24 h"
+      ],
+      "form_fields": [
+        {
+          "name": "montant",
+          "label": "Montant à envoyer (€)",
+          "type": "number",
+          "required": true
+        },
+        {
+          "name": "reception",
+          "label": "Mode de réception",
+          "type": "select",
+          "options": [
+            "Mobile Money",
+            "Compte bancaire"
+          ]
+        },
+        {
+          "name": "beneficiaireTransfert",
+          "label": "Bénéficiaire",
+          "required": true
+        }
+      ],
+      "icon": "banknotes",
+      "popular": false,
+      "available": true
+    },
+    {
+      "slug": "fret",
+      "category": "logistique",
+      "name": "Fret Europe → Bénin",
+      "price_label": "Dès 3 €/kg",
+      "short": "Groupage mensuel maritime ou aérien, dédouanement.",
+      "included": [
+        "Groupage mensuel",
+        "Maritime ou aérien",
+        "Dédouanement"
+      ],
+      "form_fields": [
+        {
+          "name": "villeEnvoi",
+          "label": "Ville d'envoi en Europe",
+          "required": true
+        },
+        {
+          "name": "nature",
+          "label": "Nature des colis"
+        },
+        {
+          "name": "poids",
+          "label": "Poids estimé (kg)",
+          "type": "number"
+        },
+        {
+          "name": "mode",
+          "label": "Préférence",
+          "type": "select",
+          "options": [
+            "Maritime",
+            "Aérien"
+          ]
+        },
+        {
+          "name": "destinataire",
+          "label": "Destinataire au Bénin"
+        }
+      ],
+      "icon": "truck",
+      "popular": true,
+      "available": true
+    },
+    {
+      "slug": "cadeaux",
+      "category": "logistique",
+      "name": "Cadeaux & produits locaux",
+      "price_label": "+30 €/envoi",
+      "short": "Sodabi, wax, karité, bijoux, envoi DHL international.",
+      "included": [
+        "Sodabi, wax, karité, bijoux",
+        "Envoi DHL international"
+      ],
+      "form_fields": [
+        {
+          "name": "produits",
+          "label": "Produits souhaités",
+          "required": true
+        },
+        {
+          "name": "paysEnvoi",
+          "label": "Pays de livraison"
+        }
+      ],
+      "icon": "gift",
+      "popular": false,
+      "available": true
+    }
+  ]
+}

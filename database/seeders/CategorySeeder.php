@@ -2,16 +2,17 @@
 
 namespace Database\Seeders;
 
-use Illuminate\Database\Console\Seeds\WithoutModelEvents;
+use App\Models\Category;
 use Illuminate\Database\Seeder;
 
 class CategorySeeder extends Seeder
 {
-    /**
-     * Run the database seeds.
-     */
     public function run(): void
     {
-        //
+        $catalog = json_decode(file_get_contents(database_path('seeders/data/catalog.json')), true);
+
+        foreach ($catalog['categories'] as $category) {
+            Category::updateOrCreate(['slug' => $category['slug']], $category);
+        }
     }
 }
