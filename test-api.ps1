@@ -296,6 +296,107 @@ $out = php artisan tinker --execute="echo App\Models\ServiceRequest::where('user
 Check "9u. demandes et compte effaces de la base" ([regex]::Match(($out -join " "), '\d+/\d+').Value -eq "0/0") ("lu : " + ($out -join " "))
 
 
+# ---------- Test 10 : messages, documents et notation ----------
+Write-Host ""
+Write-Host "== Test 10 : messages, documents et notation =="
+
+$email2 = "test" + (Get-Random) + "@exemple.com"
+$r = Req "Post" "/register" @{ first_name = "Bea"; last_name = "Messages"; email = $email2; phone = "+229 01 22 22 22 22"; country = "Benin"; password = "Motdepasse1" }
+$v2 = Req "Post" "/email/verify" @{ email = $email2; code = (LastCode) }
+$tokB = $v2.Json.token
+Check "10-01 inscription et confirmation d'un second client" ($r.Status -eq 201 -and $v2.Status -eq 200 -and $tokB) (Short $v2.Raw)
+
+$c = Req "Post" "/requests" @{ service = "suivi-chantier"; city = "Cotonou"; details = @{ adresse = "Test messages" } } $tokB
+$rid = $c.Json.data.id
+Check "10-02 creation d'une demande" ($c.Status -eq 201 -and $rid) (Short $c.Raw)
+
+$r = Req "Get" "/messages" $null $tokB
+$t = @($r.Json.data | Where-Object { $_.request_id -eq $rid })[0]
+Check "10-03 liste des discussions : la demande est la, 0 non lu" ($r.Status -eq 200 -and $t -and $t.unread -eq 0 -and $r.Json.meta.unread_total -eq 0) (Short $r.Raw)
+
+$r = Req "Post" "/requests/$rid/messages" @{} $tokB
+Check "10-04 message vide refuse (422)" ($r.Status -eq 422) (Short $r.Raw)
+
+$r = Req "Post" "/requests/$rid/messages" @{ text = "Bonjour, une question sur ma demande" } $tokB
+Check "10-05 message texte (201, de la part du client)" ($r.Status -eq 201 -and $r.Json.data.from -eq "client" -and $r.Json.data.text -eq "Bonjour, une question sur ma demande") (Short $r.Raw)
+
+$http = & curl.exe -s -o $outFile -w "%{http_code}" -X POST "$base/requests/$rid/messages" -H "Accept: application/json" -H "Authorization: Bearer $tokB" -F "text=Voici la piece" -F "attachment=@$tmpPdf"
+$raw = Get-Content $outFile -Raw
+$m = $null
+try { $m = $raw | ConvertFrom-Json } catch { }
+Check "10-06 message avec PDF (201, piece jointe)" ("$http".Trim() -eq "201" -and $m.data.attachment.name -eq "ordonnance.pdf") (Short $raw)
+$msgId = $m.data.id
+
+$http = & curl.exe -s -o $outFile -w "%{http_code}" -X POST "$base/requests/$rid/messages" -H "Accept: application/json" -H "Authorization: Bearer $tokB" -F "text=Piege" -F "attachment=@$tmpExe"
+Check "10-07 fichier .exe refuse (422)" ("$http".Trim() -eq "422") (Short (Get-Content $outFile -Raw))
+
+$dl = Join-Path $env:TEMP "kwabo_msg.pdf"
+$http = & curl.exe -s -o $dl -w "%{http_code}" -H "Accept: application/json" -H "Authorization: Bearer $tokB" "$base/messages/$msgId/attachment"
+Check "10-08 telechargement de la piece jointe par son auteur (200, bon contenu)" ("$http".Trim() -eq "200" -and (Get-Content $dl -Raw) -match "test ordonnance")
+$http = & curl.exe -s -o $dl -w "%{http_code}" -H "Accept: application/json" "$base/messages/$msgId/attachment"
+Check "10-09 telechargement sans jeton refuse (401)" ("$http".Trim() -eq "401")
+$http = & curl.exe -s -o $dl -w "%{http_code}" -H "Accept: application/json" -H "Authorization: Bearer $token" "$base/messages/$msgId/attachment"
+Check "10-10 telechargement par un autre client refuse (403)" ("$http".Trim() -eq "403")
+
+$r = Req "Get" "/requests/$rid/messages" $null $tokB
+$list = @($r.Json.data)
+Check "10-11 lecture du fil : 2 messages dans l'ordre" ($r.Status -eq 200 -and $list.Count -eq 2 -and $list[0].from -eq "client" -and $list[1].attachment.name -eq "ordonnance.pdf") (Short $r.Raw)
+
+$ra = Req "Post" "/admin/login" @{ email = "admin@kwabo.demo"; password = "Demo1234" }
+$tokA = $ra.Json.token
+$r = Req "Post" "/requests/$rid/messages" @{ text = "Bonjour, nous avons bien recu votre demande." } $tokA
+Check "10-12 reponse de l'equipe (201, de la part de l'equipe)" ($r.Status -eq 201 -and $r.Json.data.from -eq "team" -and $r.Json.data.author) (Short $r.Raw)
+
+$r = Req "Get" "/messages" $null $tokA
+$t = @($r.Json.data | Where-Object { $_.request_id -eq $rid })[0]
+Check "10-13 cote equipe : 2 messages non lus sur cette demande" ($r.Status -eq 200 -and $t.unread -eq 2) (Short $r.Raw)
+
+$r = Req "Get" "/messages" $null $tokB
+$t = @($r.Json.data | Where-Object { $_.request_id -eq $rid })[0]
+$d = Req "Get" "/requests/$rid" $null $tokB
+Check "10-14 cote client : 1 message non lu (liste et detail)" ($t.unread -eq 1 -and $r.Json.meta.unread_total -eq 1 -and $t.last_message.from -eq "team" -and $d.Json.data.unread_messages -eq 1) (Short $r.Raw)
+
+$r = Req "Post" "/requests/$rid/messages/read" $null $tokB
+Check "10-15 marquer comme lu (1 message)" ($r.Status -eq 200 -and $r.Json.updated -eq 1) (Short $r.Raw)
+$r = Req "Get" "/messages" $null $tokB
+Check "10-16 plus aucun message non lu" ($r.Json.meta.unread_total -eq 0) (Short $r.Raw)
+
+$r1 = Req "Get" "/requests/$rid/messages" $null $token
+$r2 = Req "Post" "/requests/$rid/messages" @{ text = "intrus" } $token
+Check "10-17 un autre client ne peut ni lire ni ecrire (403)" ($r1.Status -eq 403 -and $r2.Status -eq 403)
+
+$c2 = Req "Post" "/requests" @{ service = "suivi-chantier"; city = "Cotonou"; details = @{ adresse = "Test annulee" } } $tokB
+$rid2 = $c2.Json.data.id
+$null = Req "Post" "/requests/$rid2/cancel" $null $tokB
+$r = Req "Post" "/requests/$rid2/messages" @{ text = "encore la ?" } $tokB
+Check "10-18 demande annulee : discussion fermee (422)" ($r.Status -eq 422) (Short $r.Raw)
+
+$r = Req "Get" "/documents" $null $tokB
+Check "10-19 documents : le second client n'en a aucun" ($r.Status -eq 200 -and $r.Raw -match '"data"\s*:\s*\[\s*\]') (Short $r.Raw)
+$r = Req "Get" "/documents" $null $token
+$g = @($r.Json.data)
+Check "10-20 documents : le client demo voit les siens, groupes par demande" ($r.Status -eq 200 -and $g.Count -ge 1 -and $g[0].request.title -and @($g[0].documents).Count -ge 1 -and $g[0].documents[0].url) (Short $r.Raw)
+
+$r = Req "Put" "/requests/$rid/review" @{ rating = 5 } $tokB
+Check "10-21 noter avant la fin de la mission refuse (422)" ($r.Status -eq 422) (Short $r.Raw)
+Tinker "App\Models\ServiceRequest::where('id',$rid)->update(['status'=>'done']);"
+$r = Req "Put" "/requests/$rid/review" @{ rating = 5 } $tokB
+Check "10-22 note 5/5 sans commentaire : avis en attente de moderation" ($r.Status -eq 200 -and $r.Json.data.rating -eq 5 -and $r.Json.data.review.status -eq "pending") (Short $r.Raw)
+$r = Req "Put" "/requests/$rid/review" @{ rating = 4; comment = "Tres bien" } $tokB
+Check "10-23 note modifiee avec commentaire (4/5, en attente)" ($r.Status -eq 200 -and $r.Json.data.rating -eq 4 -and $r.Json.data.review.comment -eq "Tres bien" -and $r.Json.data.review.status -eq "pending") (Short $r.Raw)
+$r = Req "Put" "/requests/$rid/review" @{ rating = 6 } $tokB
+Check "10-24 note invalide refusee (422)" ($r.Status -eq 422) (Short $r.Raw)
+$r = Req "Put" "/requests/$rid/review" @{ rating = 3 } $token
+Check "10-25 un autre client ne peut pas noter (403)" ($r.Status -eq 403) (Short $r.Raw)
+$r = Req "Put" "/requests/$rid/review" @{ rating = 3 } $tokA
+Check "10-26 l'admin ne peut pas noter a la place du client (403)" ($r.Status -eq 403) (Short $r.Raw)
+
+$r = Req "Delete" "/account" @{ password = "Motdepasse1" } $tokB
+Check "10-27 suppression du second client" ($r.Status -eq 200) (Short $r.Raw)
+$out = php artisan tinker --execute="echo App\Models\Message::where('service_request_id',$rid)->count().'/'.App\Models\Review::where('service_request_id',$rid)->count().'/'.App\Models\ServiceRequest::where('id',$rid)->count();" 2>$null
+Check "10-28 messages, avis et demande effaces de la base" ([regex]::Match(($out -join " "), '\d+/\d+/\d+').Value -eq "0/0/0") ("lu : " + ($out -join " "))
+
+
 # ---------- Annulation ----------
 Write-Host ""
 Write-Host "== Annulation =="

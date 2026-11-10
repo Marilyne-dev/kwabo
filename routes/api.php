@@ -2,8 +2,10 @@
 
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\DocumentController;
+use App\Http\Controllers\Api\MessageController;
 use App\Http\Controllers\Api\PasswordController;
 use App\Http\Controllers\Api\ProfileController;
+use App\Http\Controllers\Api\ReviewController;
 use App\Http\Controllers\Api\ServiceController;
 use App\Http\Controllers\Api\ServiceRequestController;
 use App\Http\Controllers\Api\TwoFactorController;
@@ -42,6 +44,13 @@ Route::middleware(['auth:sanctum', 'not.suspended'])->group(function () {
     Route::post('/two-factor/enable', [TwoFactorController::class, 'enable']);
     Route::post('/two-factor/disable', [TwoFactorController::class, 'disable']);
 
+    // Messagerie (client, agent et admin : chacun voit ses demandes)
+    Route::get('/messages', [MessageController::class, 'threads']);
+    Route::get('/messages/{message}/attachment', [MessageController::class, 'attachment']);
+    Route::get('/requests/{serviceRequest}/messages', [MessageController::class, 'index']);
+    Route::post('/requests/{serviceRequest}/messages', [MessageController::class, 'store']);
+    Route::post('/requests/{serviceRequest}/messages/read', [MessageController::class, 'markRead']);
+
     // Téléchargement d'un document (le droit d'accès est vérifié dans le contrôleur)
     Route::get('/documents/{document}/download', [DocumentController::class, 'download']);
 
@@ -49,9 +58,12 @@ Route::middleware(['auth:sanctum', 'not.suspended'])->group(function () {
     Route::middleware('role:user')->group(function () {
         Route::delete('/account', [ProfileController::class, 'destroy']);
 
+        Route::get('/documents', [DocumentController::class, 'index']);
+
         Route::get('/requests', [ServiceRequestController::class, 'index']);
         Route::post('/requests', [ServiceRequestController::class, 'store']);
         Route::get('/requests/{serviceRequest}', [ServiceRequestController::class, 'show']);
         Route::post('/requests/{serviceRequest}/cancel', [ServiceRequestController::class, 'cancel']);
+        Route::put('/requests/{serviceRequest}/review', [ReviewController::class, 'store']);
     });
 });

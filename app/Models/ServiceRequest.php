@@ -54,4 +54,5 @@ class ServiceRequest extends Model
     public function messages(): HasMany { return $this->hasMany(Message::class); }
     public function invoices(): HasMany { return $this->hasMany(Invoice::class); }
     public function review(): HasOne { return $this->hasOne(Review::class); }
+        public function latestMessage(): HasOne { return $this->hasOne(Message::class)->latestOfMany(); }
 }

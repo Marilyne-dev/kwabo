@@ -56,4 +56,13 @@ class User extends Authenticatable
     public function appNotifications(): HasMany { return $this->hasMany(AppNotification::class); }
     public function referrer(): BelongsTo { return $this->belongsTo(User::class, 'referred_by'); }
     public function referrals(): HasMany { return $this->hasMany(User::class, 'referred_by'); }
+        // Les demandes que cette personne a le droit de voir.
+    public function visibleRequests(): \Illuminate\Database\Eloquent\Builder
+    {
+        return match (true) {
+            $this->isAdmin() => ServiceRequest::query(),
+            $this->isOperator() => ServiceRequest::where('operator_id', $this->id),
+            default => ServiceRequest::where('user_id', $this->id),
+        };
+    }
 }

@@ -20,4 +20,10 @@ class ServiceRequestPolicy
     {
         return $serviceRequest->user_id === $user->id;
     }
+
+    // Noter la mission : seulement le client qui l'a créée.
+    public function rate(User $user, ServiceRequest $serviceRequest): bool
+    {
+        return $serviceRequest->user_id === $user->id;
+    }
 }

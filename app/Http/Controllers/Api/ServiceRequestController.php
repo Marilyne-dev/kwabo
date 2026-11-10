@@ -15,6 +15,7 @@ use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Validation\Rule;
+use App\Models\Message;
 
 class ServiceRequestController extends Controller
 {
@@ -99,11 +100,15 @@ class ServiceRequestController extends Controller
             ->setStatusCode(201);
     }
 
-    public function show(ServiceRequest $serviceRequest): ServiceRequestResource
+       public function show(ServiceRequest $serviceRequest): ServiceRequestResource
     {
         Gate::authorize('view', $serviceRequest);
 
-        return new ServiceRequestResource($serviceRequest->load(self::DETAIL_RELATIONS));
+        $serviceRequest->load(self::DETAIL_RELATIONS)->loadCount([
+            'messages as unread_messages' => fn ($q) => $q->where('sender', Message::FROM_TEAM)->whereNull('read_at'),
+        ]);
+
+        return new ServiceRequestResource($serviceRequest);
     }
 
     public function cancel(ServiceRequest $serviceRequest): ServiceRequestResource
