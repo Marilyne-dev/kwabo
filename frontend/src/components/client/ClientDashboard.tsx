@@ -34,24 +34,35 @@ export const ClientDashboard: React.FC = () => {
 
   return (
     <>
-      {/* Welcome Banner */}
-      <section className="welcome">
-        <div>
+      {/* Welcome Banner enrichi avec image de fond & animations */}
+      <section className="welcome relative overflow-hidden shadow-lg border border-[#123f28]/30">
+        <div className="absolute inset-0 z-0 opacity-20 pointer-events-none">
+          <img
+            src="/assets/photos/cotonou.jpg"
+            alt="Bénin"
+            className="w-full h-full object-cover filter brightness-75 scale-105"
+          />
+          <div className="absolute inset-0 bg-gradient-to-r from-[#123f28] via-[#1a4d30] to-transparent" />
+        </div>
+        <div className="relative z-10">
+       
           <h2>Bonjour {currentUser?.firstName}</h2>
-          <p>
+          <p className="max-w-xl text-sm sm:text-base text-white/90">
             {active
               ? `Votre mission « ${active.title} » avance. Tout est à jour ci-dessous.`
-              : 'Dites-nous ce dont vous avez besoin au Bénin, nous nous en occupons.'}
+              : 'Dites-nous ce dont vous avez besoin au Bénin, nous nous en occupons avec preuves et rigueur.'}
           </p>
         </div>
-        <button
-          className="btn btn-gold btn-lg"
-          type="button"
-          onClick={() => navigate('client-new-request')}
-        >
-          <Icon name="plus-circle" size={20} />
-          <span>Nouvelle demande</span>
-        </button>
+        <div className="relative z-10 flex flex-wrap items-center gap-3">
+          <button
+            className="btn btn-gold btn-lg shadow-md hover:shadow-lg transition-transform hover:-translate-y-0.5 active:translate-y-0"
+            type="button"
+            onClick={() => navigate('client-new-request')}
+          >
+            <Icon name="plus-circle" size={20} />
+            <span>Nouvelle demande</span>
+          </button>
+        </div>
       </section>
 
       {/* 4 Stats Cards */}

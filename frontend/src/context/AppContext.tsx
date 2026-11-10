@@ -48,6 +48,7 @@ interface AppContextType {
   // Auth & Roles
   login: (email: string, password?: string) => { success: boolean; message?: string };
   logout: () => void;
+  resetPassword: (email: string, password?: string) => { success: boolean; message?: string };
   switchPersona: (targetRole: AppRole, userId?: string) => void;
   resetDemoData: () => void;
   
@@ -98,6 +99,10 @@ export function getHashForView(view: string, reqId: string | null = null, userRo
     case 'public-services': return '#/services';
     case 'login': return '#/connexion';
     case 'register': return '#/inscription';
+    case 'forgot-password': return '#/mot-de-passe-oublie';
+    case 'reset-password': return '#/reinitialiser-mot-de-passe';
+    case 'privacy': return '#/confidentialite';
+    case 'cgu': return '#/cgu';
     // Client
     case 'client-dashboard': return '#/espace';
     case 'client-requests': return '#/espace/demandes';
@@ -143,6 +148,10 @@ export function getViewFromHash(hash: string, userRole: AppRole): { view: string
   // Public & auth
   if (parts[0] === 'connexion') return { view: 'login', reqId: null };
   if (parts[0] === 'inscription') return { view: 'register', reqId: null };
+  if (parts[0] === 'mot-de-passe-oublie') return { view: 'forgot-password', reqId: null };
+  if (parts[0] === 'reinitialiser-mot-de-passe') return { view: 'reset-password', reqId: null };
+  if (parts[0] === 'confidentialite') return { view: 'privacy', reqId: null };
+  if (parts[0] === 'cgu') return { view: 'cgu', reqId: null };
   if (parts[0] === 'services' && userRole === 'VISITOR') return { view: 'public-services', reqId: null };
 
   // Client space (#/espace/...)
@@ -368,6 +377,15 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     setRole('VISITOR');
     addToast('Vous êtes à présent déconnecté.', 'info');
     navigate('public-home');
+  };
+
+  const resetPassword = (email: string, _newPassword?: string) => {
+    const normalized = email.trim().toLowerCase();
+    const found = users.find(u => u.email.toLowerCase() === normalized);
+    if (!found) {
+      return { success: false, message: 'Cette adresse e-mail n\'existe pas dans notre annuaire.' };
+    }
+    return { success: true, message: 'Mot de passe mis à jour avec succès.' };
   };
 
   // Switcher de recette front-end (permet de basculer instantanément de rôle sans polluer la page de login)

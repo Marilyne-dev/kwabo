@@ -71,11 +71,11 @@ export const PublicHeader: React.FC = () => {
           </div>
         </form>
 
-        <nav aria-label="Navigation principale" className="public-header-nav ml-auto hidden items-center gap-6 text-[15px] font-medium text-[#404844] xl:flex">
-          <a href="#services" className="transition-colors hover:text-[#1a5c3a]">Services</a>
-          <a href="#garanties" className="transition-colors hover:text-[#1a5c3a]">Confiance</a>
-          <a href="#faq" className="transition-colors hover:text-[#1a5c3a]">FAQ</a>
-          <button type="button" onClick={() => navigate('login')} className="whitespace-nowrap transition-colors hover:text-[#1a5c3a]">
+        <nav aria-label="Navigation principale" className="public-header-nav ml-auto hidden items-center gap-6 text-[15px] font-medium text-[#404844] lg:flex">
+          <a href="#services" className="nav-link-underline hover:text-[#1a5c3a]">Services</a>
+          <a href="#garanties" className="nav-link-underline hover:text-[#1a5c3a]">Confiance</a>
+          <a href="#faq" className="nav-link-underline hover:text-[#1a5c3a]">FAQ</a>
+          <button type="button" onClick={() => navigate('login')} className="nav-link-underline whitespace-nowrap hover:text-[#1a5c3a]">
             Se connecter
           </button>
           {currentUser ? (

@@ -22,6 +22,7 @@ import { LegalPage } from './components/public/LegalPage';
 // Auth components
 import { LoginPage } from './components/auth/LoginPage';
 import { RegisterPage } from './components/auth/RegisterPage';
+import { ForgotPasswordPage } from './components/auth/ForgotPasswordPage';
 
 // Client components
 import { ClientDashboard } from './components/client/ClientDashboard';
@@ -78,13 +79,15 @@ const MainAppContent: React.FC = () => {
   };
 
   // 1. PUBLIC OR AUTH VIEWS
-  if (role === 'VISITOR' || currentView === 'login' || currentView === 'register' || currentView === 'privacy' || currentView === 'cgu') {
+  if (role === 'VISITOR' || currentView === 'login' || currentView === 'register' || currentView === 'forgot-password' || currentView === 'reset-password' || currentView === 'privacy' || currentView === 'cgu') {
     return (
       <div className="min-h-screen flex flex-col bg-[#f9f7f4]">
         {currentView === 'login' ? (
           <LoginPage />
         ) : currentView === 'register' ? (
           <RegisterPage />
+        ) : currentView === 'forgot-password' || currentView === 'reset-password' ? (
+          <ForgotPasswordPage />
         ) : currentView === 'privacy' ? (
           <LegalPage type="confidentialite" />
         ) : currentView === 'cgu' ? (

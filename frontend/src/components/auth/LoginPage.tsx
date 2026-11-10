@@ -86,8 +86,8 @@ export const LoginPage: React.FC = () => {
           </label>
           <button
             type="button"
-            onClick={() => alert('Veuillez contacter le support KWABO pour réinitialiser vos accès.')}
-            className="font-medium text-[#1a5c3a] underline underline-offset-2"
+            onClick={() => navigate('forgot-password')}
+            className="font-medium text-[#1a5c3a] underline underline-offset-2 hover:text-[#123f28]"
           >
             Mot de passe oublié ?
           </button>
