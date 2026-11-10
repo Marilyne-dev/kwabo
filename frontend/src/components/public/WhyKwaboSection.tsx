@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { FileCheck2, MessageCircle, Receipt, ShieldCheck, UserRoundPlus, Video } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import { WHATSAPP_LINK } from '../../data/kwaboData';
@@ -28,6 +28,33 @@ const guarantees = [
 
 export const WhyKwaboSection: React.FC = () => {
   const { navigate } = useApp();
+
+  // Les 4 cadres apparaissent un par un quand la liste entre dans l'écran
+  const listRef = useRef<HTMLUListElement>(null);
+  const [visible, setVisible] = useState(false);
+
+  useEffect(() => {
+    const node = listRef.current;
+    if (!node) return;
+
+    if (typeof IntersectionObserver === 'undefined') {
+      setVisible(true);
+      return;
+    }
+
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting) {
+          setVisible(true);
+          observer.disconnect();
+        }
+      },
+      { threshold: 0.15 }
+    );
+
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, []);
 
   return (
     <section className="bg-[#1a4d30] bg-benin-pattern px-5 py-16 text-white sm:px-8 sm:py-20">
@@ -66,11 +93,14 @@ export const WhyKwaboSection: React.FC = () => {
           </div>
         </div>
 
-        <ul className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4">
-          {guarantees.map(({ icon: Icon, title, description }) => (
+        <ul ref={listRef} className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4">
+          {guarantees.map(({ icon: Icon, title, description }, index) => (
             <li
               key={title}
-              className="min-h-[140px] rounded-[20px] border border-white/15 bg-white/[0.08] p-5 sm:p-6"
+              style={{ transitionDelay: visible ? `${index * 200}ms` : '0ms' }}
+              className={`min-h-[140px] rounded-[20px] border border-white/15 bg-white/[0.08] p-5 transition-all duration-700 ease-out motion-reduce:transition-none sm:p-6 ${
+                visible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-10'
+              }`}
             >
               <span className="mb-2 flex h-11 w-11 items-center justify-center rounded-xl bg-[#f5c842] text-[#123f28]">
                 <Icon aria-hidden="true" className="h-5 w-5" />

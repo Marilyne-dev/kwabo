@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useApp } from '../../context/AppContext';
 import { CATEGORIES } from '../../data/kwaboData';
 import { Service } from '../../types';
@@ -8,6 +8,48 @@ interface Props {
   selectedCategory: string;
   onSelectCategory: (cat: string) => void;
 }
+
+// Fait apparaître chaque carte (fondu + montée) quand elle entre dans l'écran,
+// avec un décalage selon sa colonne pour qu'elles arrivent une par une.
+const RevealCard: React.FC<{ delay: number; children: React.ReactNode }> = ({ delay, children }) => {
+  const ref = useRef<HTMLDivElement>(null);
+  const [visible, setVisible] = useState(false);
+
+  useEffect(() => {
+    const node = ref.current;
+    if (!node) return;
+
+    if (typeof IntersectionObserver === 'undefined') {
+      setVisible(true);
+      return;
+    }
+
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting) {
+          setVisible(true);
+          observer.disconnect();
+        }
+      },
+      { threshold: 0.12 }
+    );
+
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, []);
+
+  return (
+    <div
+      ref={ref}
+      style={{ transitionDelay: visible ? `${delay}ms` : '0ms' }}
+      className={`h-full transition-all duration-700 ease-out motion-reduce:transition-none ${
+        visible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-10'
+      }`}
+    >
+      {children}
+    </div>
+  );
+};
 
 export const ServicesGrid: React.FC<Props> = ({ selectedCategory, onSelectCategory }) => {
   const { services, openServiceModal } = useApp();
@@ -83,74 +125,75 @@ export const ServicesGrid: React.FC<Props> = ({ selectedCategory, onSelectCatego
 
         {/* Grid */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-          {filteredServices.map(service => {
+          {filteredServices.map((service, index) => {
             const cat = CATEGORIES.find(c => c.id === service.cat);
             return (
-              <div
-                key={service.id}
-                onClick={() => openServiceModal(service)}
-                className="group bg-white rounded-3xl overflow-hidden border border-[#e0e8e4] hover:shadow-xl hover:border-[#1a5c3a]/40 transition-all duration-300 flex flex-col justify-between cursor-pointer"
-              >
-                <div>
-                  {/* Photo with Overlay Badge */}
-                  <div className="relative h-48 overflow-hidden">
-                    <img
-                      src={service.photo}
-                      alt={service.name}
-                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
-                    />
-                    <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/10 to-transparent" />
-                    
-                    <div className="absolute top-3 left-3 flex items-center gap-2">
-                      <span className="text-[11px] font-bold px-2.5 py-1 rounded-full bg-black/60 text-white backdrop-blur-md">
-                        {cat?.short}
-                      </span>
-                      {service.popular && (
-                        <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2.5 py-1 rounded-full bg-[#f5c842] text-[#123f28] shadow-sm">
-                          <Sparkles className="w-3 h-3" />
-                          Plébiscité
+              <RevealCard key={service.id} delay={(index % 3) * 180}>
+                <div
+                  onClick={() => openServiceModal(service)}
+                  className="group h-full bg-white rounded-3xl overflow-hidden border border-[#e0e8e4] hover:shadow-xl hover:border-[#1a5c3a]/40 transition-all duration-300 flex flex-col justify-between cursor-pointer"
+                >
+                  <div>
+                    {/* Photo with Overlay Badge */}
+                    <div className="relative h-48 overflow-hidden">
+                      <img
+                        src={service.photo}
+                        alt={service.name}
+                        className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                      />
+                      <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/10 to-transparent" />
+                      
+                      <div className="absolute top-3 left-3 flex items-center gap-2">
+                        <span className="text-[11px] font-bold px-2.5 py-1 rounded-full bg-black/60 text-white backdrop-blur-md">
+                          {cat?.short}
                         </span>
-                      )}
+                        {service.popular && (
+                          <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2.5 py-1 rounded-full bg-[#f5c842] text-[#123f28] shadow-sm">
+                            <Sparkles className="w-3 h-3" />
+                            Plébiscité
+                          </span>
+                        )}
+                      </div>
+
+                      <div className="absolute bottom-3 left-3 right-3 text-white">
+                        <span className="text-xs font-bold text-[#f5c842] block">
+                          {service.price}
+                        </span>
+                        <h3 className="font-display text-lg font-bold truncate">
+                          {service.name}
+                        </h3>
+                      </div>
                     </div>
 
-                    <div className="absolute bottom-3 left-3 right-3 text-white">
-                      <span className="text-xs font-bold text-[#f5c842] block">
-                        {service.price}
-                      </span>
-                      <h3 className="font-display text-lg font-bold truncate">
-                        {service.name}
-                      </h3>
+                    {/* Body Content */}
+                    <div className="p-6 space-y-4">
+                      <p className="text-xs text-[#56635b] leading-relaxed line-clamp-2">
+                        {service.short}
+                      </p>
+
+                      {/* Included bullets */}
+                      <div className="space-y-1.5 pt-1">
+                        {service.included.slice(0, 3).map((inc, i) => (
+                          <div key={i} className="flex items-center gap-2 text-xs text-[#404844]">
+                            <Check className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                            <span className="truncate">{inc}</span>
+                          </div>
+                        ))}
+                      </div>
                     </div>
                   </div>
 
-                  {/* Body Content */}
-                  <div className="p-6 space-y-4">
-                    <p className="text-xs text-[#56635b] leading-relaxed line-clamp-2">
-                      {service.short}
-                    </p>
-
-                    {/* Included bullets */}
-                    <div className="space-y-1.5 pt-1">
-                      {service.included.slice(0, 3).map((inc, i) => (
-                        <div key={i} className="flex items-center gap-2 text-xs text-[#404844]">
-                          <Check className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-                          <span className="truncate">{inc}</span>
-                        </div>
-                      ))}
+                  {/* Card Action footer */}
+                  <div className="p-6 pt-0 border-t border-neutral-100 mt-2 flex items-center justify-between">
+                    <span className="text-xs font-bold text-[#1a5c3a] group-hover:underline">
+                      Détails & devis
+                    </span>
+                    <div className="w-8 h-8 rounded-full bg-[#e8f5ee] group-hover:bg-[#1a5c3a] group-hover:text-white text-[#1a5c3a] flex items-center justify-center transition-colors">
+                      <ArrowRight className="w-4 h-4" />
                     </div>
                   </div>
                 </div>
-
-                {/* Card Action footer */}
-                <div className="p-6 pt-0 border-t border-neutral-100 mt-2 flex items-center justify-between">
-                  <span className="text-xs font-bold text-[#1a5c3a] group-hover:underline">
-                    Détails & devis
-                  </span>
-                  <div className="w-8 h-8 rounded-full bg-[#e8f5ee] group-hover:bg-[#1a5c3a] group-hover:text-white text-[#1a5c3a] flex items-center justify-center transition-colors">
-                    <ArrowRight className="w-4 h-4" />
-                  </div>
-                </div>
-              </div>
+              </RevealCard>
             );
           })}
         </div>
