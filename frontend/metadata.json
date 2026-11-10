@@ -1,0 +1,6 @@
+{
+  "name": "KWABO - Services pour la diaspora béninoise",
+  "description": "Plateforme web de services de confiance pour la diaspora béninoise : suivi de chantier, santé & famille, démarches administratives et fret logistique.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
