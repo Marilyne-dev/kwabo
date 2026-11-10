@@ -35,4 +35,8 @@ return [
         ],
     ],
 
+           'payments' => [
+           'driver' => env('PAYMENTS_DRIVER', 'none'),
+       ],
+
 ];

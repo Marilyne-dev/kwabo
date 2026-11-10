@@ -396,6 +396,74 @@ Check "10-27 suppression du second client" ($r.Status -eq 200) (Short $r.Raw)
 $out = php artisan tinker --execute="echo App\Models\Message::where('service_request_id',$rid)->count().'/'.App\Models\Review::where('service_request_id',$rid)->count().'/'.App\Models\ServiceRequest::where('id',$rid)->count();" 2>$null
 Check "10-28 messages, avis et demande effaces de la base" ([regex]::Match(($out -join " "), '\d+/\d+/\d+').Value -eq "0/0/0") ("lu : " + ($out -join " "))
 
+# ---------- Test 11 : factures, paiement et moyens enregistres ----------
+Write-Host ""
+Write-Host "== Test 11 : paiements =="
+
+$email3 = "test" + (Get-Random) + "@exemple.com"
+$r = Req "Post" "/register" @{ first_name = "Cleo"; last_name = "Paiement"; email = $email3; phone = "+229 01 33 33 33 33"; country = "Benin"; password = "Motdepasse1" }
+$uidC = $r.Json.user.id
+$v3 = Req "Post" "/email/verify" @{ email = $email3; code = (LastCode) }
+$tokC = $v3.Json.token
+Check "11-01 inscription et confirmation d'un troisieme client" ($r.Status -eq 201 -and $v3.Status -eq 200 -and $tokC) (Short $v3.Raw)
+
+$c = Req "Post" "/requests" @{ service = "suivi-chantier"; city = "Cotonou"; details = @{ adresse = "Test paiement" } } $tokC
+$ridC = $c.Json.data.id
+Check "11-02 creation d'une demande" ($c.Status -eq 201 -and $ridC) (Short $c.Raw)
+
+$num = Get-Random
+Tinker "App\Models\Invoice::create(['number'=>'F-TEST-$num-A','service_request_id'=>$ridC,'user_id'=>$uidC,'label'=>'Devis test','amount'=>150,'status'=>'due']);"
+Tinker "App\Models\Invoice::create(['number'=>'F-TEST-$num-B','service_request_id'=>$ridC,'user_id'=>$uidC,'label'=>'Acompte test','amount'=>50,'status'=>'paid','method'=>'card','paid_at'=>now()]);"
+Tinker "App\Models\PaymentMethod::create(['user_id'=>$uidC,'type'=>'card','label'=>'Visa se terminant par 4242','provider_token'=>'tok_test']);"
+
+$r = Req "Get" "/invoices" $null $tokC
+$list = @($r.Json.data)
+$inv = @($list | Where-Object { $_.status -eq "due" })[0]
+$invId = $inv.id
+Check "11-03 liste des factures : 2 factures, 150 a payer, 50 paye" ($r.Status -eq 200 -and $list.Count -eq 2 -and $r.Json.meta.due_total -eq 150 -and $r.Json.meta.paid_total -eq 50 -and $r.Json.meta.count -eq 2 -and $inv.request.title) (Short $r.Raw)
+
+$r = Req "Post" "/invoices/$invId/pay" @{ method = "card" } $token
+Check "11-04 un autre client ne peut pas payer cette facture (404)" ($r.Status -eq 404) (Short $r.Raw)
+
+$r = Req "Post" "/invoices/$invId/pay" @{ method = "cheque" } $tokC
+Check "11-05 moyen de paiement inconnu refuse (422)" ($r.Status -eq 422) (Short $r.Raw)
+
+$r = Req "Post" "/invoices/$invId/pay" @{ method = "card"; simulate = "fail" } $tokC
+$after = Req "Get" "/invoices" $null $tokC
+Check "11-06 echec simule : 402 et facture toujours a payer" ($r.Status -eq 402 -and $after.Json.meta.due_total -eq 150) (Short $r.Raw)
+
+$r = Req "Post" "/invoices/$invId/pay" @{ method = "momo" } $tokC
+Check "11-07 paiement reussi (Mobile Money) : facture payee" ($r.Status -eq 200 -and $r.Json.data.status -eq "paid" -and $r.Json.data.method -eq "momo" -and $r.Json.data.paid_at) (Short $r.Raw)
+
+$d = Req "Get" "/requests/$ridC" $null $tokC
+$hist = ($d.Json.data.history | ForEach-Object { $_.text }) -join " | "
+Check "11-08 la demande est passee en cours apres le paiement" ($d.Json.data.status -eq "active" -and $hist -match "Mission d") ("historique : " + $hist)
+
+$r = Req "Post" "/invoices/$invId/pay" @{ method = "momo" } $tokC
+Check "11-09 payer deux fois refuse (422)" ($r.Status -eq 422) (Short $r.Raw)
+
+$out = php artisan tinker --execute="echo 'n='.App\Models\AppNotification::where('user_id',$uidC)->count();" 2>$null
+Check "11-10 3 notifications (demande recue, paiement, mission demarree)" ([regex]::Match(($out -join " "), 'n=(\d+)').Groups[1].Value -eq "3") ("lu : " + ($out -join " "))
+
+$r = Req "Get" "/payment-methods" $null $tokC
+$pm = @($r.Json.data)
+Check "11-11 moyens enregistres : la carte est la, sans jeton prestataire" ($r.Status -eq 200 -and $pm.Count -eq 1 -and $pm[0].type -eq "card" -and $pm[0].label -match "4242" -and $r.Raw -notmatch "provider_token" -and $r.Raw -notmatch "tok_test") (Short $r.Raw)
+$pmId = $pm[0].id
+
+$r = Req "Delete" "/payment-methods/$pmId" $null $token
+Check "11-12 un autre client ne peut pas supprimer ce moyen (404)" ($r.Status -eq 404) (Short $r.Raw)
+
+$r = Req "Delete" "/payment-methods/$pmId" $null $tokC
+$r2 = Req "Get" "/payment-methods" $null $tokC
+Check "11-13 suppression de son propre moyen enregistre" ($r.Status -eq 200 -and $r2.Raw -match '"data"\s*:\s*\[\s*\]') (Short $r2.Raw)
+
+$r = Req "Delete" "/account" @{ password = "Motdepasse1" } $tokC
+Check "11-14 suppression du client de test" ($r.Status -eq 200) (Short $r.Raw)
+$out = php artisan tinker --execute="echo 'n='.App\Models\Invoice::where('user_id',$uidC)->count().'/'.App\Models\PaymentMethod::where('user_id',$uidC)->count().'/'.App\Models\AppNotification::where('user_id',$uidC)->count();" 2>$null
+Check "11-15 factures, moyens et notifications effaces" ([regex]::Match(($out -join " "), 'n=(\d+/\d+/\d+)').Groups[1].Value -eq "0/0/0") ("lu : " + ($out -join " "))
+
+
+
 
 # ---------- Annulation ----------
 Write-Host ""
