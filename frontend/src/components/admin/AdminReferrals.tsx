@@ -52,10 +52,7 @@ export const AdminReferrals: React.FC = () => {
         </li>
       </ul>
 
-      <p className="notice">
-        <Icon name="information-circle" size={18} />
-        <span>Exemple : {example} € par filleul converti. Le montant réel reste à fixer par KWABO.</span>
-      </p>
+     
 
       <section className="card">
         {rows.length === 0 ? (

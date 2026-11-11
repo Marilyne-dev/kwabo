@@ -255,7 +255,7 @@ export const SERVICES: Service[] = [
   {
     id: 'fret',
     cat: 'logistique',
-    name: 'Fret Europe → Bénin',
+    name: 'Frais Europe → Bénin',
     icon: 'Package',
     popular: true,
     price: 'Dès 3 €/kg',
@@ -597,7 +597,7 @@ export const SEED_REVIEWS: ReviewItem[] = [
 
 export const SEED_AUDIT: AuditItem[] = [
   { id: 'j1', at: '2026-11-09T08:00:00Z', actor: 'Équipe KWABO', text: 'Devis généré pour la demande #KW-2026-0002 (45 €)' },
-  { id: 'j2', at: '2026-11-09T04:10:00Z', actor: 'Système', text: 'Nouvelle demande reçue : Fret Europe → Bénin (Romuald Agbo)' },
+  { id: 'j2', at: '2026-11-09T04:10:00Z', actor: 'Système', text: 'Nouvelle demande reçue : Frais Europe → Bénin (Romuald Agbo)' },
   { id: 'j3', at: '2026-11-06T15:20:00Z', actor: 'Maxime Dossou', text: 'Dépôt du rapport semaine 4 et vidéo 360° pour la villa Calavi' },
   { id: 'j4', at: '2026-10-29T10:00:00Z', actor: 'Système', text: 'Encaissement 250 € (Mobile Money MTN) pour le dossier visa #KW-2026-0005' },
   { id: 'j5', at: '2026-10-12T14:00:00Z', actor: 'Équipe KWABO', text: 'Attribution de la mission villa Calavi à Maxime Dossou' },

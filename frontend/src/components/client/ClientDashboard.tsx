@@ -3,6 +3,178 @@ import { useApp } from '../../context/AppContext';
 import { Icon } from '../common/Icon';
 import { SERVICES, CATEGORIES, STATUS_MAP, DOC_TYPE_META } from '../../data/kwaboData';
 
+/* Animations ajoutées (CSS uniquement, aucune logique modifiée) */
+const DASHBOARD_ANIMATIONS = `
+@keyframes kwWordIn {
+  0%   { opacity: 0; transform: translateY(22px) scale(0.92); filter: blur(6px); }
+  60%  { opacity: 1; transform: translateY(-3px) scale(1.02); filter: blur(0); }
+  100% { opacity: 1; transform: translateY(0) scale(1); filter: blur(0); }
+}
+@keyframes kwFadeUp {
+  from { opacity: 0; transform: translateY(16px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes kwFadeIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+@keyframes kwPopIn {
+  0%   { opacity: 0; transform: scale(0.85); }
+  70%  { opacity: 1; transform: scale(1.04); }
+  100% { opacity: 1; transform: scale(1); }
+}
+@keyframes kwSlideRight {
+  from { opacity: 0; transform: translateX(-14px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+@keyframes kwKenBurns {
+  from { transform: scale(1.05); }
+  to   { transform: scale(1.14); }
+}
+@keyframes kwCurrentPulse {
+  0%   { box-shadow: 0 0 0 0 rgba(212, 160, 23, 0.5); }
+  70%  { box-shadow: 0 0 0 10px rgba(212, 160, 23, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(212, 160, 23, 0); }
+}
+@keyframes kwAlertShake {
+  0%, 100% { transform: translateX(0); }
+  20% { transform: translateX(-4px); }
+  40% { transform: translateX(4px); }
+  60% { transform: translateX(-2px); }
+  80% { transform: translateX(2px); }
+}
+
+/* Bonjour + prénom : mot par mot */
+.kw-greeting .kw-word {
+  display: inline-block;
+  opacity: 0;
+  animation: kwWordIn 0.7s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  will-change: transform, opacity, filter;
+}
+.kw-greeting .kw-word + .kw-word {
+  margin-left: 0.3em;
+}
+
+/* Bannière */
+.kw-welcome-img {
+  animation: kwKenBurns 14s ease-in-out infinite alternate;
+}
+.kw-welcome-text {
+  opacity: 0;
+  animation: kwFadeUp 0.7s ease 1.3s forwards;
+}
+.kw-welcome-cta {
+  opacity: 0;
+  animation: kwFadeUp 0.7s ease 1.6s forwards;
+}
+
+/* Stats */
+.kw-stat {
+  opacity: 0;
+  animation: kwPopIn 0.55s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+  transition: transform 0.25s ease, box-shadow 0.25s ease;
+}
+.kw-stat:hover {
+  transform: translateY(-4px);
+}
+.kw-stat .tile {
+  transition: transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+.kw-stat:hover .tile {
+  transform: scale(1.15) rotate(-6deg);
+}
+
+/* Alerte devis */
+.kw-alert {
+  opacity: 0;
+  animation: kwFadeUp 0.5s ease forwards, kwAlertShake 0.6s ease 0.8s 1;
+}
+
+/* Cartes */
+.kw-card {
+  opacity: 0;
+  animation: kwFadeUp 0.6s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  transition: transform 0.3s ease, box-shadow 0.3s ease;
+}
+.kw-card:hover {
+  transform: translateY(-2px);
+}
+
+/* Lignes de demandes */
+.kw-row {
+  opacity: 0;
+  animation: kwSlideRight 0.5s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  transition: transform 0.25s ease, background-color 0.25s ease;
+}
+.kw-row:hover {
+  transform: translateX(4px);
+}
+.kw-row:hover .request-row-side > svg:last-child {
+  transform: translateX(3px);
+}
+.kw-row .request-row-side > svg:last-child {
+  transition: transform 0.25s ease;
+}
+
+/* Étapes de statut */
+.kw-step {
+  opacity: 0;
+  animation: kwSlideRight 0.5s ease forwards;
+}
+.kw-step.is-current .status-step-dot {
+  animation: kwCurrentPulse 1.8s ease-out infinite;
+}
+
+/* Notifications et documents */
+.kw-item {
+  opacity: 0;
+  animation: kwSlideRight 0.45s ease forwards;
+}
+.kw-item .icon-btn {
+  transition: transform 0.2s ease;
+}
+.kw-item .icon-btn:hover {
+  transform: scale(1.18);
+}
+
+/* Services */
+.kw-service {
+  opacity: 0;
+  animation: kwFadeUp 0.55s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  transition: transform 0.3s ease, box-shadow 0.3s ease;
+}
+.kw-service:hover {
+  transform: translateY(-5px);
+}
+.kw-service .service-card-foot svg {
+  transition: transform 0.25s ease;
+}
+.kw-service:hover .service-card-foot svg {
+  transform: translateX(5px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .kw-greeting .kw-word,
+  .kw-welcome-text,
+  .kw-welcome-cta,
+  .kw-stat,
+  .kw-alert,
+  .kw-card,
+  .kw-row,
+  .kw-step,
+  .kw-item,
+  .kw-service {
+    opacity: 1 !important;
+    animation: none !important;
+    transition: none !important;
+  }
+  .kw-welcome-img,
+  .kw-step.is-current .status-step-dot {
+    animation: none !important;
+  }
+}
+`;
+
 export const ClientDashboard: React.FC = () => {
   const { currentUser, requests, documents, invoices, notifications, navigate, openPhotoModal, addToast } = useApp();
 
@@ -32,63 +204,79 @@ export const ClientDashboard: React.FC = () => {
 
   const statusOrder = ['pending', 'active', 'done'];
 
+  // Mots du message d'accueil, affichés un à un
+  const greetingWords = ['Bonjour', ...(currentUser?.firstName ? currentUser.firstName.split(' ') : [])];
+
   return (
     <>
+      <style>{DASHBOARD_ANIMATIONS}</style>
+
       {/* Welcome Banner enrichi avec image de fond & animations */}
       <section className="welcome relative overflow-hidden shadow-lg border border-[#123f28]/30">
         <div className="absolute inset-0 z-0 opacity-20 pointer-events-none">
           <img
             src="/assets/photos/cotonou.jpg"
             alt="Bénin"
-            className="w-full h-full object-cover filter brightness-75 scale-105"
+            className="w-full h-full object-cover filter brightness-75 scale-105 kw-welcome-img"
           />
           <div className="absolute inset-0 bg-gradient-to-r from-[#123f28] via-[#1a4d30] to-transparent" />
         </div>
         <div className="relative z-10">
        
-          <h2>Bonjour {currentUser?.firstName}</h2>
-          <p className="max-w-xl text-sm sm:text-base text-white/90">
+          <h2 className="kw-greeting" aria-label={`Bonjour ${currentUser?.firstName ?? ''}`}>
+            {greetingWords.map((word, i) => (
+              <span
+                key={`${word}-${i}`}
+                className="kw-word"
+                aria-hidden="true"
+                style={{ animationDelay: `${0.2 + i * 0.55}s` }}
+              >
+                {word}
+              </span>
+            ))}
+          </h2>
+          <p className="max-w-xl text-sm sm:text-base text-white/90 kw-welcome-text">
             {active
               ? `Votre mission « ${active.title} » avance. Tout est à jour ci-dessous.`
               : 'Dites-nous ce dont vous avez besoin au Bénin, nous nous en occupons avec preuves et rigueur.'}
           </p>
         </div>
-        <div className="relative z-10 flex flex-wrap items-center gap-3">
+        <div className="relative z-10 flex flex-wrap items-center gap-3 kw-welcome-cta">
           <button
             className="btn btn-gold btn-lg shadow-md hover:shadow-lg transition-transform hover:-translate-y-0.5 active:translate-y-0"
             type="button"
             onClick={() => navigate('client-new-request')}
           >
             <Icon name="plus-circle" size={20} />
-            <span>Nouvelle demande</span>
+            <span>Nouvelle demande </span>
           </button>
         </div>
       </section>
 
       {/* 4 Stats Cards */}
       <ul className="stats">
-        <li className="stat stat-neutral">
+        <li className="stat stat-neutral kw-stat" style={{ animationDelay: '1.7s' }}>
           <span className="tile tile-sm">
             <Icon name="clipboard-document-list" size={18} />
           </span>
           <strong>{userRequests.length}</strong>
           <span>Demandes au total</span>
         </li>
-        <li className="stat stat-gold">
+        <li className="stat stat-gold kw-stat" style={{ animationDelay: '1.8s' }}>
           <span className="tile tile-sm">
             <Icon name="clock" size={18} />
           </span>
           <strong>{count('pending')}</strong>
           <span>En attente</span>
         </li>
-        <li className="stat stat-green">
+        <li className="stat stat-green kw-stat" style={{ animationDelay: '1.9s' }}>
           <span className="tile tile-sm">
             <Icon name="bolt" size={18} />
           </span>
           <strong>{count('active')}</strong>
           <span>En cours</span>
         </li>
-        <li className="stat stat-neutral">
+        <li className="stat stat-neutral kw-stat" style={{ animationDelay: '2s' }}>
           <span className="tile tile-sm">
             <Icon name="check-circle" size={18} />
           </span>
@@ -98,8 +286,8 @@ export const ClientDashboard: React.FC = () => {
       </ul>
 
       {/* Devis en attente de paiement alert */}
-      {dueInvoices.map(i => (
-        <div key={i.id} className="alert">
+      {dueInvoices.map((i, idx) => (
+        <div key={i.id} className="alert kw-alert" style={{ animationDelay: `${2.1 + idx * 0.1}s, ${2.6 + idx * 0.1}s` }}>
           <span className="tile tile-sm">
             <Icon name="banknotes" size={18} />
           </span>
@@ -113,7 +301,7 @@ export const ClientDashboard: React.FC = () => {
               navigate('client-invoices');
             }}
           >
-            Payer
+          Passer au paiement
           </button>
         </div>
       ))}
@@ -122,7 +310,7 @@ export const ClientDashboard: React.FC = () => {
       <div className="dash-grid">
         {/* Left Stack: Mes dernières demandes & Mission en cours */}
         <div className="stack">
-          <section className="card">
+          <section className="card kw-card" style={{ animationDelay: '2.2s' }}>
             <div className="card-head">
               <h2>Mes dernières demandes</h2>
               <a href="#/espace/demandes" onClick={(e) => { e.preventDefault(); navigate('client-requests'); }}>
@@ -149,12 +337,13 @@ export const ClientDashboard: React.FC = () => {
               </div>
             ) : (
               <div className="request-list">
-                {userRequests.slice(0, 3).map(r => {
+                {userRequests.slice(0, 3).map((r, idx) => {
                   const s = SERVICES.find(srv => srv.id === r.serviceId) || SERVICES[0];
                   return (
                     <a
                       key={r.id}
-                      className="request-row"
+                      className="request-row kw-row"
+                      style={{ animationDelay: `${2.4 + idx * 0.12}s` }}
                       href={`#/espace/demandes/${r.id}`}
                       onClick={(e) => {
                         e.preventDefault();
@@ -190,7 +379,7 @@ export const ClientDashboard: React.FC = () => {
 
           {/* Mission en cours Card */}
           {active && (
-            <section className="card">
+            <section className="card kw-card" style={{ animationDelay: '2.5s' }}>
               <div className="card-head">
                 <h2>Mission en cours</h2>
                 <a
@@ -214,7 +403,8 @@ export const ClientDashboard: React.FC = () => {
                   return (
                     <li
                       key={key}
-                      className={`${isDone ? 'is-done' : ''} ${isCurrent ? 'is-current' : ''}`}
+                      className={`kw-step ${isDone ? 'is-done' : ''} ${isCurrent ? 'is-current' : ''}`}
+                      style={{ animationDelay: `${2.8 + i * 0.2}s` }}
                       aria-current={isCurrent ? 'step' : undefined}
                     >
                       <span className="status-step-dot">
@@ -238,7 +428,7 @@ export const ClientDashboard: React.FC = () => {
 
         {/* Right Stack: Notifications & Derniers documents */}
         <div className="stack">
-          <section className="card">
+          <section className="card kw-card" style={{ animationDelay: '2.3s' }}>
             <div className="card-head">
               <h2>Notifications</h2>
               <span className="muted small-text">{userNotifs.length} non lues</span>
@@ -248,8 +438,12 @@ export const ClientDashboard: React.FC = () => {
               <p className="muted">Rien de nouveau. Vous êtes à jour.</p>
             ) : (
               <ul className="notif-list space-y-2">
-                {userNotifs.slice(0, 3).map(n => (
-                  <li key={n.id} className="p-2.5 rounded-xl bg-[#fdf6e0]/60 border border-[#f1e3ae] text-xs">
+                {userNotifs.slice(0, 3).map((n, idx) => (
+                  <li
+                    key={n.id}
+                    className="p-2.5 rounded-xl bg-[#fdf6e0]/60 border border-[#f1e3ae] text-xs kw-item"
+                    style={{ animationDelay: `${2.5 + idx * 0.12}s` }}
+                  >
                     <p className="font-semibold">{n.text}</p>
                     <small className="muted">{formatDateTime(n.at)}</small>
                   </li>
@@ -259,7 +453,7 @@ export const ClientDashboard: React.FC = () => {
           </section>
 
           {lastDocs.length > 0 && (
-            <section className="card">
+            <section className="card kw-card" style={{ animationDelay: '2.5s' }}>
               <div className="card-head">
                 <h2>Derniers documents</h2>
                 <a href="#/espace/documents" onClick={(e) => { e.preventDefault(); navigate('client-documents'); }}>
@@ -267,10 +461,14 @@ export const ClientDashboard: React.FC = () => {
                 </a>
               </div>
               <ul className="doc-list">
-                {lastDocs.map(d => {
+                {lastDocs.map((d, idx) => {
                   const meta = DOC_TYPE_META[d.type];
                   return (
-                    <li key={d.id} className="doc-item">
+                    <li
+                      key={d.id}
+                      className="doc-item kw-item"
+                      style={{ animationDelay: `${2.7 + idx * 0.12}s` }}
+                    >
                       <span className="tile tile-sm">
                         <Icon name={meta.icon} size={18} />
                       </span>
@@ -312,12 +510,13 @@ export const ClientDashboard: React.FC = () => {
           </a>
         </div>
         <div className="service-grid service-grid-compact">
-          {SERVICES.filter(s => s.popular && s.available).slice(0, 4).map(s => {
+          {SERVICES.filter(s => s.popular && s.available).slice(0, 4).map((s, idx) => {
             const cat = CATEGORIES.find(c => c.id === s.cat);
             return (
               <a
                 key={s.id}
-                className="service-card"
+                className="service-card kw-service"
+                style={{ animationDelay: `${2.9 + idx * 0.12}s` }}
                 href={`#/espace/nouvelle-demande?service=${s.id}`}
                 onClick={(e) => {
                   e.preventDefault();

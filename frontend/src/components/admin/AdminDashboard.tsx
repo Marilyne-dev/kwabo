@@ -3,6 +3,179 @@ import { useApp } from '../../context/AppContext';
 import { Icon } from '../common/Icon';
 import { SERVICES, CATEGORIES } from '../../data/kwaboData';
 
+/* Animations ajoutées (CSS uniquement, aucune logique modifiée) */
+const ADMIN_DASHBOARD_ANIMATIONS = `
+@keyframes kwFadeUp {
+  from { opacity: 0; transform: translateY(16px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes kwPopIn {
+  0%   { opacity: 0; transform: scale(0.85); }
+  70%  { opacity: 1; transform: scale(1.04); }
+  100% { opacity: 1; transform: scale(1); }
+}
+@keyframes kwSlideRight {
+  from { opacity: 0; transform: translateX(-14px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+@keyframes kwGrowY {
+  from { transform: scaleY(0); }
+  to   { transform: scaleY(1); }
+}
+@keyframes kwGrowX {
+  from { transform: scaleX(0); }
+  to   { transform: scaleX(1); }
+}
+@keyframes kwValueIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes kwUrgentPulse {
+  0%   { box-shadow: 0 0 0 0 rgba(220, 38, 38, 0.45); }
+  70%  { box-shadow: 0 0 0 8px rgba(220, 38, 38, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(220, 38, 38, 0); }
+}
+@keyframes kwTimelineIn {
+  from { opacity: 0; transform: translateY(-8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* Statistiques */
+.kw-stat {
+  opacity: 0;
+  animation: kwPopIn 0.55s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+  transition: transform 0.25s ease, box-shadow 0.25s ease;
+}
+.kw-stat:hover {
+  transform: translateY(-4px);
+}
+.kw-stat .tile {
+  transition: transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+.kw-stat:hover .tile {
+  transform: scale(1.15) rotate(-6deg);
+}
+.kw-stat strong {
+  display: inline-block;
+  animation: kwValueIn 0.6s ease both;
+}
+
+/* Cartes */
+.kw-card {
+  opacity: 0;
+  animation: kwFadeUp 0.6s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  transition: transform 0.3s ease, box-shadow 0.3s ease;
+}
+.kw-card:hover {
+  transform: translateY(-2px);
+}
+
+/* Lignes « à traiter » */
+.kw-row {
+  opacity: 0;
+  animation: kwSlideRight 0.5s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  transition: transform 0.25s ease, background-color 0.25s ease;
+}
+.kw-row:hover {
+  transform: translateX(4px);
+}
+.kw-row > svg:last-child {
+  transition: transform 0.25s ease;
+}
+.kw-row:hover > svg:last-child {
+  transform: translateX(4px);
+}
+.kw-row .badge-red {
+  animation: kwUrgentPulse 1.8s ease-out infinite;
+}
+
+/* Histogramme vertical : les barres poussent depuis le bas */
+.kw-vbar .vbar-fill {
+  transform-origin: bottom;
+  animation: kwGrowY 0.9s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation-delay: inherit;
+  transition: filter 0.25s ease;
+}
+.kw-vbar:hover .vbar-fill,
+.kw-vbar:focus .vbar-fill {
+  filter: brightness(1.12);
+}
+.kw-vbar .vbar-value {
+  animation: kwValueIn 0.5s ease both;
+  animation-delay: inherit;
+}
+.kw-vbar .vbar-label {
+  animation: kwValueIn 0.5s ease both;
+  animation-delay: inherit;
+}
+
+/* Barres horizontales : elles s'étirent depuis la gauche */
+.kw-bar .bars-fill {
+  transform-origin: left;
+  animation: kwGrowX 0.9s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation-delay: inherit;
+}
+.kw-bar {
+  opacity: 0;
+  animation: kwSlideRight 0.45s ease forwards;
+  transition: transform 0.2s ease;
+}
+.kw-bar:hover {
+  transform: translateX(3px);
+}
+.kw-bar .bars-value {
+  animation: kwValueIn 0.5s ease both;
+  animation-delay: inherit;
+}
+
+/* Timeline */
+.kw-timeline-item {
+  opacity: 0;
+  animation: kwTimelineIn 0.5s ease forwards;
+}
+
+/* Tableau déroulant */
+.kw-details[open] .table {
+  animation: kwFadeUp 0.4s ease both;
+}
+.kw-details summary {
+  transition: opacity 0.2s ease;
+}
+.kw-details summary:hover {
+  opacity: 0.75;
+}
+
+/* Liens des stats */
+.kw-stat a {
+  transition: opacity 0.2s ease;
+}
+.kw-stat a:hover {
+  opacity: 0.8;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .kw-stat,
+  .kw-stat strong,
+  .kw-card,
+  .kw-row,
+  .kw-bar,
+  .kw-timeline-item,
+  .kw-vbar .vbar-fill,
+  .kw-vbar .vbar-value,
+  .kw-vbar .vbar-label,
+  .kw-bar .bars-fill,
+  .kw-bar .bars-value,
+  .kw-details[open] .table {
+    opacity: 1 !important;
+    animation: none !important;
+    transition: none !important;
+  }
+  .kw-row .badge-red {
+    animation: none !important;
+  }
+}
+`;
+
 export const AdminDashboard: React.FC = () => {
   const { requests, users, invoices, auditLogs, messages, navigate, currentUser } = useApp();
   const [showChartTable, setShowChartTable] = useState(false);
@@ -83,13 +256,15 @@ export const AdminDashboard: React.FC = () => {
 
   return (
     <>
+      <style>{ADMIN_DASHBOARD_ANIMATIONS}</style>
+
       {/* 4 Stats Cards */}
       <ul className="stats stats-4">
-        <li className="stat stat-gold stat-link">
+        <li className="stat stat-gold stat-link kw-stat" style={{ animationDelay: '0.1s' }}>
           <span className="tile tile-sm">
             <Icon name="document-text" size={18} />
           </span>
-          <strong>{pendingQuotes.length}</strong>
+          <strong style={{ animationDelay: '0.45s' }}>{pendingQuotes.length}</strong>
           <span>
             <a href="#/demandes" onClick={(e) => { e.preventDefault(); navigate('admin-requests'); }}>
               Devis à préparer
@@ -97,11 +272,11 @@ export const AdminDashboard: React.FC = () => {
           </span>
         </li>
 
-        <li className="stat stat-green stat-link">
+        <li className="stat stat-green stat-link kw-stat" style={{ animationDelay: '0.2s' }}>
           <span className="tile tile-sm">
             <Icon name="bolt" size={18} />
           </span>
-          <strong>{activeCount}</strong>
+          <strong style={{ animationDelay: '0.55s' }}>{activeCount}</strong>
           <span>
             <a href="#/demandes" onClick={(e) => { e.preventDefault(); navigate('admin-requests'); }}>
               Missions en cours
@@ -109,11 +284,11 @@ export const AdminDashboard: React.FC = () => {
           </span>
         </li>
 
-        <li className="stat stat-green stat-link">
+        <li className="stat stat-green stat-link kw-stat" style={{ animationDelay: '0.3s' }}>
           <span className="tile tile-sm">
             <Icon name="banknotes" size={18} />
           </span>
-          <strong>{formatMoney(paidThisMonth || 1650)}</strong>
+          <strong style={{ animationDelay: '0.65s' }}>{formatMoney(paidThisMonth || 1650)}</strong>
           <span>
             <a href="#/paiements" onClick={(e) => { e.preventDefault(); navigate('admin-invoices'); }}>
               Encaissé ce mois-ci
@@ -121,11 +296,11 @@ export const AdminDashboard: React.FC = () => {
           </span>
         </li>
 
-        <li className="stat stat-gold stat-link">
+        <li className="stat stat-gold stat-link kw-stat" style={{ animationDelay: '0.4s' }}>
           <span className="tile tile-sm">
             <Icon name="clock" size={18} />
           </span>
-          <strong>{formatMoney(dueAmount)}</strong>
+          <strong style={{ animationDelay: '0.75s' }}>{formatMoney(dueAmount)}</strong>
           <span>
             <a href="#/paiements" onClick={(e) => { e.preventDefault(); navigate('admin-invoices'); }}>
               En attente de paiement
@@ -137,7 +312,7 @@ export const AdminDashboard: React.FC = () => {
       {/* Main Dashboard Grid */}
       <div className="dash-grid">
         {/* À traiter en priorité */}
-        <section className="card">
+        <section className="card kw-card" style={{ animationDelay: '0.5s' }}>
           <div className="card-head">
             <h2>À traiter en priorité</h2>
             <a href="#/demandes" onClick={(e) => { e.preventDefault(); navigate('admin-requests'); }}>
@@ -155,13 +330,14 @@ export const AdminDashboard: React.FC = () => {
             </div>
           ) : (
             <div className="request-list">
-              {pendingWork.slice(0, 6).map(({ r, reasons }) => {
+              {pendingWork.slice(0, 6).map(({ r, reasons }, rowIdx) => {
                 const s = SERVICES.find(srv => srv.id === r.serviceId) || SERVICES[0];
                 const client = users.find(u => u.id === r.userId);
                 return (
                   <a
                     key={r.id}
-                    className="work-row"
+                    className="work-row kw-row"
+                    style={{ animationDelay: `${0.7 + rowIdx * 0.1}s` }}
                     href={`#/demandes/${r.id}`}
                     onClick={(e) => {
                       e.preventDefault();
@@ -202,7 +378,7 @@ export const AdminDashboard: React.FC = () => {
         </section>
 
         {/* Encaissements (vchart) */}
-        <section className="card">
+        <section className="card kw-card" style={{ animationDelay: '0.6s' }}>
           <div className="card-head">
             <h2>Encaissements</h2>
             <a href="#/indicateurs" onClick={(e) => { e.preventDefault(); navigate('admin-kpis'); }}>
@@ -216,7 +392,8 @@ export const AdminDashboard: React.FC = () => {
               {monthsData.map((m, idx) => (
                 <li
                   key={idx}
-                  className="vbar"
+                  className="vbar kw-vbar"
+                  style={{ animationDelay: `${0.9 + idx * 0.12}s` }}
                   tabIndex={0}
                   data-tip={`${m.full} : ${formatMoney(m.amount)}`}
                 >
@@ -235,7 +412,7 @@ export const AdminDashboard: React.FC = () => {
             </ul>
           </figure>
 
-          <details className="chart-table" open={showChartTable} onToggle={(e) => setShowChartTable((e.target as HTMLDetailsElement).open)}>
+          <details className="chart-table kw-details" open={showChartTable} onToggle={(e) => setShowChartTable((e.target as HTMLDetailsElement).open)}>
             <summary>Voir en tableau</summary>
             <table className="table">
               <thead>
@@ -260,11 +437,16 @@ export const AdminDashboard: React.FC = () => {
       {/* Grid 3 Columns */}
       <div className="grid-3">
         {/* Demandes par univers */}
-        <section className="card">
+        <section className="card kw-card" style={{ animationDelay: '0.8s' }}>
           <h2>Demandes par univers</h2>
           <ul className="bars">
-            {catRows.map(({ c, value }) => (
-              <li key={c.id} title={`${c.name} : ${value} demande${value > 1 ? 's' : ''}`}>
+            {catRows.map(({ c, value }, idx) => (
+              <li
+                key={c.id}
+                className="kw-bar"
+                style={{ animationDelay: `${1 + idx * 0.1}s` }}
+                title={`${c.name} : ${value} demande${value > 1 ? 's' : ''}`}
+              >
                 <span className="bars-label">{c.short}</span>
                 <span className="bars-track">
                   <span
@@ -279,7 +461,7 @@ export const AdminDashboard: React.FC = () => {
         </section>
 
         {/* Charge des agents */}
-        <section className="card">
+        <section className="card kw-card" style={{ animationDelay: '0.9s' }}>
           <div className="card-head">
             <h2>Charge des agents</h2>
             <a href="#/equipe" onClick={(e) => { e.preventDefault(); navigate('admin-team'); }}>
@@ -288,10 +470,15 @@ export const AdminDashboard: React.FC = () => {
           </div>
           <p className="muted small-text">Missions en cours par agent</p>
           <ul className="bars bars-wide">
-            {operators.map(o => {
+            {operators.map((o, idx) => {
               const count = requests.filter(r => r.operatorId === o.id && r.status === 'active').length;
               return (
-                <li key={o.id} title={`${o.firstName} ${o.lastName} : ${count} en cours`}>
+                <li
+                  key={o.id}
+                  className="kw-bar"
+                  style={{ animationDelay: `${1.1 + idx * 0.1}s` }}
+                  title={`${o.firstName} ${o.lastName} : ${count} en cours`}
+                >
                   <span className="bars-label">{o.firstName} {o.lastName}</span>
                   <span className="bars-track">
                     <span
@@ -307,7 +494,7 @@ export const AdminDashboard: React.FC = () => {
         </section>
 
         {/* Activité récente (timeline) */}
-        <section className="card">
+        <section className="card kw-card" style={{ animationDelay: '1s' }}>
           <div className="card-head">
             <h2>Activité récente</h2>
             <a href="#/journal" onClick={(e) => { e.preventDefault(); navigate('admin-audit'); }}>
@@ -315,8 +502,12 @@ export const AdminDashboard: React.FC = () => {
             </a>
           </div>
           <ol className="timeline">
-            {auditLogs.slice(0, 4).map(j => (
-              <li key={j.id}>
+            {auditLogs.slice(0, 4).map((j, idx) => (
+              <li
+                key={j.id}
+                className="kw-timeline-item"
+                style={{ animationDelay: `${1.2 + idx * 0.15}s` }}
+              >
                 <strong>{j.text}</strong>
                 <small>{j.actor} · {formatDateTime(j.at)}</small>
               </li>
@@ -327,4 +518,3 @@ export const AdminDashboard: React.FC = () => {
     </>
   );
 };
-

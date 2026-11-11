@@ -53,10 +53,7 @@ export const AdminKpis: React.FC = () => {
 
   return (
     <>
-      <p className="notice">
-        <Icon name="information-circle" size={18} />
-        <span>Objectifs de la première année, selon le cahier des charges de la plateforme KWABO.</span>
-      </p>
+     
 
       {/* Objectifs M6 & M12 */}
       <section className="card">

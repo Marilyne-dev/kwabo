@@ -442,10 +442,6 @@ export const AdminInvoices: React.FC = () => {
         )}
       </section>
 
-      <p className="notice">
-        <Icon name="lock-closed" size={16} />
-        <span>Les données de carte restent chez Stripe, Flutterwave et Wise : KWABO n'en conserve aucune.</span>
-      </p>
     </>
   );
 };

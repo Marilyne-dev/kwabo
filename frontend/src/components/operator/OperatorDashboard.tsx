@@ -3,6 +3,126 @@ import { useApp } from '../../context/AppContext';
 import { Icon } from '../common/Icon';
 import { SERVICES, DOC_TYPE_META } from '../../data/kwaboData';
 
+/* Animations ajoutées (CSS uniquement, aucune logique modifiée) */
+const OPERATOR_DASHBOARD_ANIMATIONS = `
+@keyframes kwFadeUp {
+  from { opacity: 0; transform: translateY(16px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes kwPopIn {
+  0%   { opacity: 0; transform: scale(0.85); }
+  70%  { opacity: 1; transform: scale(1.04); }
+  100% { opacity: 1; transform: scale(1); }
+}
+@keyframes kwSlideRight {
+  from { opacity: 0; transform: translateX(-14px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+@keyframes kwValueIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes kwUrgentPulse {
+  0%   { box-shadow: 0 0 0 0 rgba(220, 38, 38, 0.45); }
+  70%  { box-shadow: 0 0 0 8px rgba(220, 38, 38, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(220, 38, 38, 0); }
+}
+@keyframes kwEmptyFloat {
+  0%, 100% { transform: translateY(0); }
+  50%      { transform: translateY(-6px); }
+}
+
+/* Statistiques */
+.kw-stat {
+  opacity: 0;
+  animation: kwPopIn 0.55s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+  transition: transform 0.25s ease, box-shadow 0.25s ease;
+}
+.kw-stat:hover {
+  transform: translateY(-4px);
+}
+.kw-stat .tile {
+  transition: transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+.kw-stat:hover .tile {
+  transform: scale(1.15) rotate(-6deg);
+}
+.kw-stat strong {
+  display: inline-block;
+  animation: kwValueIn 0.6s ease both;
+}
+
+/* Cartes */
+.kw-card {
+  opacity: 0;
+  animation: kwFadeUp 0.6s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  transition: transform 0.3s ease, box-shadow 0.3s ease;
+}
+.kw-card:hover {
+  transform: translateY(-2px);
+}
+
+/* Lignes « À faire » */
+.kw-row {
+  opacity: 0;
+  animation: kwSlideRight 0.5s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  transition: transform 0.25s ease, background-color 0.25s ease;
+}
+.kw-row:hover {
+  transform: translateX(4px);
+}
+.kw-row > svg:last-child {
+  transition: transform 0.25s ease;
+}
+.kw-row:hover > svg:last-child {
+  transform: translateX(4px);
+}
+.kw-row .badge-red {
+  animation: kwUrgentPulse 1.8s ease-out infinite;
+}
+
+/* État vide */
+.kw-card .empty-state .tile-lg {
+  animation: kwEmptyFloat 3s ease-in-out infinite;
+}
+
+/* Documents */
+.kw-item {
+  opacity: 0;
+  animation: kwSlideRight 0.45s ease forwards;
+}
+.kw-item .icon-btn {
+  transition: transform 0.2s ease;
+}
+.kw-item .icon-btn:hover {
+  transform: scale(1.18);
+}
+
+/* Liens */
+.kw-card .card-head a {
+  transition: opacity 0.2s ease;
+}
+.kw-card .card-head a:hover {
+  opacity: 0.75;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .kw-stat,
+  .kw-stat strong,
+  .kw-card,
+  .kw-row,
+  .kw-item {
+    opacity: 1 !important;
+    animation: none !important;
+    transition: none !important;
+  }
+  .kw-row .badge-red,
+  .kw-card .empty-state .tile-lg {
+    animation: none !important;
+  }
+}
+`;
+
 export const OperatorDashboard: React.FC = () => {
   const { currentUser, requests, users, documents, messages, navigate, openPhotoModal, addToast } = useApp();
 
@@ -34,34 +154,36 @@ export const OperatorDashboard: React.FC = () => {
 
   return (
     <>
+      <style>{OPERATOR_DASHBOARD_ANIMATIONS}</style>
+
       {/* 4 Stats Cards */}
       <ul className="stats stats-4">
-        <li className="stat stat-neutral">
+        <li className="stat stat-neutral kw-stat" style={{ animationDelay: '0.1s' }}>
           <span className="tile tile-sm">
             <Icon name="clipboard-document-list" size={18} />
           </span>
-          <strong>{assigned.length}</strong>
+          <strong style={{ animationDelay: '0.45s' }}>{assigned.length}</strong>
           <span>Missions attribuées</span>
         </li>
-        <li className="stat stat-gold">
+        <li className="stat stat-gold kw-stat" style={{ animationDelay: '0.2s' }}>
           <span className="tile tile-sm">
             <Icon name="clock" size={18} />
           </span>
-          <strong>{count('pending')}</strong>
+          <strong style={{ animationDelay: '0.55s' }}>{count('pending')}</strong>
           <span>En attente</span>
         </li>
-        <li className="stat stat-green">
+        <li className="stat stat-green kw-stat" style={{ animationDelay: '0.3s' }}>
           <span className="tile tile-sm">
             <Icon name="bolt" size={18} />
           </span>
-          <strong>{count('active')}</strong>
+          <strong style={{ animationDelay: '0.65s' }}>{count('active')}</strong>
           <span>En cours</span>
         </li>
-        <li className="stat stat-neutral">
+        <li className="stat stat-neutral kw-stat" style={{ animationDelay: '0.4s' }}>
           <span className="tile tile-sm">
             <Icon name="check-circle" size={18} />
           </span>
-          <strong>{count('done')}</strong>
+          <strong style={{ animationDelay: '0.75s' }}>{count('done')}</strong>
           <span>Terminées</span>
         </li>
       </ul>
@@ -69,7 +191,7 @@ export const OperatorDashboard: React.FC = () => {
       {/* Dash Grid */}
       <div className="dash-grid">
         {/* À faire */}
-        <section className="card">
+        <section className="card kw-card" style={{ animationDelay: '0.5s' }}>
           <div className="card-head">
             <h2>À faire</h2>
             <a href="#/demandes" onClick={(e) => { e.preventDefault(); navigate('operator-missions'); }}>
@@ -87,14 +209,15 @@ export const OperatorDashboard: React.FC = () => {
             </div>
           ) : (
             <div className="request-list">
-              {pendingWork.map(({ r, reasons }) => {
+              {pendingWork.map(({ r, reasons }, rowIdx) => {
                 const s = SERVICES.find(srv => srv.id === r.serviceId) || SERVICES[0];
                 const client = users.find(u => u.id === r.userId);
 
                 return (
                   <a
                     key={r.id}
-                    className="work-row"
+                    className="work-row kw-row"
+                    style={{ animationDelay: `${0.7 + rowIdx * 0.1}s` }}
                     href={`#/demandes/${r.id}`}
                     onClick={(e) => {
                       e.preventDefault();
@@ -131,17 +254,21 @@ export const OperatorDashboard: React.FC = () => {
         </section>
 
         {/* Derniers documents déposés */}
-        <section className="card">
+        <section className="card kw-card" style={{ animationDelay: '0.6s' }}>
           <h2>Derniers documents déposés</h2>
           {docs.length === 0 ? (
             <p className="muted">Aucun document pour le moment.</p>
           ) : (
             <ul className="doc-list">
-              {docs.map(d => {
+              {docs.map((d, idx) => {
                 const meta = DOC_TYPE_META[d.type];
                 const service = SERVICES.find(s => s.id === d.requestId) || SERVICES[0];
                 return (
-                  <li key={d.id} className="doc-item">
+                  <li
+                    key={d.id}
+                    className="doc-item kw-item"
+                    style={{ animationDelay: `${0.8 + idx * 0.12}s` }}
+                  >
                     <span className="tile tile-sm">
                       <Icon name={meta.icon} size={18} />
                     </span>

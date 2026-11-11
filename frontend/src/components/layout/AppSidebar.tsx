@@ -17,6 +17,135 @@ interface NavSection {
   exact?: boolean;
 }
 
+/* Animations ajoutées (CSS uniquement, aucune logique modifiée) */
+const SIDEBAR_ANIMATIONS = `
+@keyframes kwFadeDown {
+  from { opacity: 0; transform: translateY(-10px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes kwFadeUp {
+  from { opacity: 0; transform: translateY(12px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes kwSlideInLeft {
+  from { opacity: 0; transform: translateX(-18px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+@keyframes kwHeadingIn {
+  from { opacity: 0; transform: translateX(-8px); letter-spacing: 0.12em; }
+  to   { opacity: 1; transform: translateX(0); letter-spacing: normal; }
+}
+@keyframes kwBadgePop {
+  0%   { opacity: 0; transform: scale(0.4); }
+  60%  { opacity: 1; transform: scale(1.25); }
+  100% { transform: scale(1); }
+}
+@keyframes kwWhatsappPulse {
+  0%   { box-shadow: 0 0 0 0 rgba(37, 211, 102, 0.45); }
+  70%  { box-shadow: 0 0 0 10px rgba(37, 211, 102, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(37, 211, 102, 0); }
+}
+@keyframes kwActiveBar {
+  from { transform: scaleY(0); opacity: 0; }
+  to   { transform: scaleY(1); opacity: 1; }
+}
+
+.sidebar .sidebar-top {
+  animation: kwFadeDown 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.sidebar .logo-mark {
+  transition: transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+.sidebar .logo:hover .logo-mark {
+  transform: rotate(-8deg) scale(1.1);
+}
+.sidebar .sidebar-close {
+  transition: transform 0.3s ease, opacity 0.2s ease;
+}
+.sidebar .sidebar-close:hover {
+  transform: rotate(90deg);
+}
+
+.sidebar .kw-anim-heading {
+  animation: kwHeadingIn 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.sidebar .kw-anim-link {
+  position: relative;
+  animation: kwSlideInLeft 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
+  transition: background-color 0.25s ease, color 0.25s ease, padding-left 0.25s ease;
+}
+.sidebar .kw-anim-link svg {
+  transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+.sidebar .kw-anim-link:hover svg {
+  transform: scale(1.18) rotate(-4deg);
+}
+.sidebar .kw-anim-link:hover {
+  padding-left: calc(1em + 4px);
+}
+.sidebar .kw-anim-link:active {
+  transform: scale(0.97);
+}
+.sidebar .kw-anim-link[aria-current="page"]::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 18%;
+  bottom: 18%;
+  width: 3px;
+  border-radius: 3px;
+  background: currentColor;
+  transform-origin: center;
+  animation: kwActiveBar 0.35s ease both;
+}
+.sidebar .kw-anim-badge {
+  display: inline-block;
+  animation: kwBadgePop 0.45s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+
+.sidebar .sidebar-foot {
+  animation: kwFadeUp 0.6s cubic-bezier(0.22, 1, 0.36, 1) 0.3s both;
+}
+.sidebar .side-whatsapp {
+  animation: kwWhatsappPulse 2.4s ease-out 1.2s infinite;
+  transition: transform 0.25s ease;
+}
+.sidebar .side-whatsapp:hover {
+  transform: translateY(-2px);
+  animation-play-state: paused;
+}
+.sidebar .side-user {
+  transition: background-color 0.25s ease, transform 0.25s ease;
+}
+.sidebar .side-user:hover {
+  transform: translateX(3px);
+}
+.sidebar .side-user .avatar {
+  transition: transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+.sidebar .side-user:hover .avatar {
+  transform: scale(1.1) rotate(6deg);
+}
+.sidebar .side-logout:hover svg {
+  transform: translateX(4px);
+}
+.sidebar .side-legal a {
+  transition: opacity 0.2s ease;
+}
+.sidebar .side-legal a:hover {
+  opacity: 0.75;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sidebar *,
+  .sidebar *::before,
+  .sidebar *::after {
+    animation: none !important;
+    transition: none !important;
+  }
+}
+`;
+
 export const AppSidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
   const { 
     role, currentUser, currentView, navigate, logout, 
@@ -89,6 +218,7 @@ export const AppSidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
 
   return (
     <>
+      <style>{SIDEBAR_ANIMATIONS}</style>
       <aside className={`sidebar ${isOpen ? 'open' : ''}`} id="sidebar" aria-label="Menu de l'espace">
         <div className="sidebar-top">
           <button 
@@ -116,7 +246,11 @@ export const AppSidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
           {navItems.map((item, index) => {
             if (item.heading) {
               return (
-                <p key={`head-${index}`} className="side-heading">
+                <p
+                  key={`head-${index}`}
+                  className="side-heading kw-anim-heading"
+                  style={{ animationDelay: `${index * 45}ms` }}
+                >
                   {item.heading}
                 </p>
               );
@@ -131,7 +265,8 @@ export const AppSidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
               <button
                 key={item.id}
                 type="button"
-                className="side-link"
+                className="side-link kw-anim-link"
+                style={{ animationDelay: `${index * 45}ms` }}
                 aria-current={active ? 'page' : undefined}
                 onClick={() => {
                   navigate(item.id!);
@@ -141,7 +276,7 @@ export const AppSidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
                 {item.icon && <Icon name={item.icon} size={20} />}
                 <span>{item.label}</span>
                 {item.badge !== undefined && (
-                  <span className="count">{item.badge}</span>
+                  <span key={String(item.badge)} className="count kw-anim-badge">{item.badge}</span>
                 )}
               </button>
             );
@@ -226,4 +361,3 @@ export const AppSidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
     </>
   );
 };
-

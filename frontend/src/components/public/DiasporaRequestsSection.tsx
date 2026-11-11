@@ -12,7 +12,7 @@ const requests = [
   'Acte de naissance',
   'Casier judiciaire',
   "Transfert d'argent",
-  'Fret maritime',
+  'Frais maritime',
   'Sodabi',
   'Wax',
   'Mariage à distance',

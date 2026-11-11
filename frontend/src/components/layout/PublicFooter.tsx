@@ -21,7 +21,7 @@ export const PublicFooter: React.FC = () => {
               </span>
             </div>
             <p className="text-white/80 text-sm leading-relaxed max-w-sm">
-              Votre présence de confiance au Bénin. Suivi de chantier avec vidéos 360°, soutien médical et familial, démarches administratives et fret sécurisé pour la diaspora béninoise.
+              Votre présence de confiance au Bénin. Suivi de chantier avec vidéos 360°, soutien médical et familial, démarches administratives et frais sécurisés pour la diaspora béninoise.
             </p>
             <div className="pt-2 flex flex-col gap-2 text-xs text-white/70">
               <span className="flex items-center gap-2">
@@ -51,7 +51,7 @@ export const PublicFooter: React.FC = () => {
               <li><a href="#services" className="hover:text-white transition">Paiement factures SBEE/SONEB</a></li>
               <li><a href="#services" className="hover:text-white transition">Visas & inscriptions fac</a></li>
               <li><a href="#services" className="hover:text-white transition">Création de société APIEx</a></li>
-              <li><a href="#services" className="hover:text-white transition">Fret Europe → Bénin</a></li>
+              <li><a href="#services" className="hover:text-white transition">Frais Europe → Bénin</a></li>
             </ul>
           </div>
 

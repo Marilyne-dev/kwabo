@@ -7,7 +7,7 @@ const suggestedServices = [
   'Suivi de chantier',
   'Santé de vos proches',
   'Dossier visa',
-  'Fret Europe',
+  'Frais Europe',
   "Création d'entreprise",
 ];
 
@@ -114,7 +114,7 @@ export const HeroSection: React.FC = () => {
                   setShowResults(true);
                 }}
                 onFocus={() => setShowResults(Boolean(searchQuery.trim()))}
-                placeholder="Que cherchez-vous ? Suivi de chantier, visa, fret..."
+                placeholder="Que cherchez-vous ? Suivi de chantier, visa, santé, frais Europe..."
                 aria-label="Rechercher un service"
                 className="min-w-0 flex-1 bg-transparent px-3 py-3 text-left text-sm text-[#1a1f1b] outline-none placeholder:text-[#68736d] sm:text-base"
               />

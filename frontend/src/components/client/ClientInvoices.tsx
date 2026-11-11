@@ -1,11 +1,21 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { motion, useReducedMotion, type Variants } from 'motion/react';
 import { useApp } from '../../context/AppContext';
 import { InvoiceItem } from '../../types';
 import { Icon } from '../common/Icon';
 import { PAYMENT_METHODS } from '../../data/kwaboData';
 
+// Apparition en cascade : chaque bloc monte légèrement en fondu, l'un après l'autre.
+const container: Variants = { hidden: {}, show: { transition: { staggerChildren: 0.1 } } };
+const cascade: Variants = { hidden: {}, show: { transition: { staggerChildren: 0.09, delayChildren: 0.2 } } };
+const item: Variants = {
+  hidden: { opacity: 0, y: 16 },
+  show: { opacity: 1, y: 0, transition: { duration: 0.45, ease: 'easeOut' } },
+};
+
 export const ClientInvoices: React.FC = () => {
   const { currentUser, invoices, users, payInvoice, addToast } = useApp();
+  const reduceMotion = useReducedMotion();
 
   /* ── local state ── */
   const [selectedInvoice, setSelectedInvoice] = useState<InvoiceItem | null>(null);
@@ -120,7 +130,12 @@ ${inv.paidAt ? `<div><dt>Payée le</dt><dd>${fmtDate(inv.paidAt)}</dd></div><div
   };
 
   return (
-    <div>
+    <motion.div
+      className="stack"
+      variants={container}
+      initial={reduceMotion ? false : 'hidden'}
+      animate="show"
+    >
       {/* ── Drawer overlay ── */}
       <div
         className={`drawer-overlay${drawerOpen ? ' open' : ''}`}
@@ -225,42 +240,48 @@ ${inv.paidAt ? `<div><dt>Payée le</dt><dd>${fmtDate(inv.paidAt)}</dd></div><div
       </aside>
 
       {/* ── 3 Stats Cards ── */}
-      <ul className="stats stats-3">
-        <li className="stat stat-gold">
+      <motion.ul className="stats stats-3" variants={cascade}>
+        <motion.li className="stat stat-gold" variants={item} whileHover={{ y: -3, transition: { duration: 0.2 } }}>
           <span className="tile tile-sm"><Icon name="clock" size={18} /></span>
           <strong>{money(totalDue)}</strong>
           <span>À payer</span>
-        </li>
-        <li className="stat stat-green">
+        </motion.li>
+        <motion.li className="stat stat-green" variants={item} whileHover={{ y: -3, transition: { duration: 0.2 } }}>
           <span className="tile tile-sm"><Icon name="check-circle" size={18} /></span>
           <strong>{money(totalPaid)}</strong>
           <span>Total payé</span>
-        </li>
-        <li className="stat stat-neutral">
+        </motion.li>
+        <motion.li className="stat stat-neutral" variants={item} whileHover={{ y: -3, transition: { duration: 0.2 } }}>
           <span className="tile tile-sm"><Icon name="receipt-percent" size={18} /></span>
           <strong>{userInvoices.length}</strong>
           <span>Factures</span>
-        </li>
-      </ul>
+        </motion.li>
+      </motion.ul>
 
       {/* ── Due Alerts ── */}
       {due.map(i => (
-        <div key={i.id} className="alert">
+        <motion.div key={i.id} className="alert" variants={item}>
           <span className="tile tile-sm"><Icon name="banknotes" size={18} /></span>
           <p>
             <strong>{i.label} : {money(i.amount)}</strong>
             <br />
             <small>Facture {i.id} du {fmtDate(i.createdAt)}</small>
           </p>
-          <button className="btn btn-gold btn-sm" type="button" onClick={() => handleOpenPay(i)}>
+          <motion.button
+            className="btn btn-gold btn-sm"
+            type="button"
+            onClick={() => handleOpenPay(i)}
+            whileHover={{ scale: 1.04 }}
+            whileTap={{ scale: 0.95 }}
+          >
             Payer
-          </button>
-        </div>
+          </motion.button>
+        </motion.div>
       ))}
 
-      <div className="stack">
+      <motion.div className="stack" variants={cascade}>
         {/* ── Historique ── */}
-        <section className="card">
+        <motion.section className="card" variants={item}>
           <h2>Historique</h2>
           {userInvoices.length ? (
             <div className="table-wrap">
@@ -275,9 +296,9 @@ ${inv.paidAt ? `<div><dt>Payée le</dt><dd>${fmtDate(inv.paidAt)}</dd></div><div
                     <th><span className="sr-only">Actions</span></th>
                   </tr>
                 </thead>
-                <tbody>
+                <motion.tbody variants={cascade}>
                   {userInvoices.map(i => (
-                    <tr key={i.id}>
+                    <motion.tr key={i.id} variants={item}>
                       <td data-label="Facture"><strong>{i.id}</strong></td>
                       <td data-label="Objet">{i.label}</td>
                       <td data-label="Date" className="nowrap">{fmtDate(i.paidAt || i.createdAt)}</td>
@@ -294,18 +315,18 @@ ${inv.paidAt ? `<div><dt>Payée le</dt><dd>${fmtDate(inv.paidAt)}</dd></div><div
                           </button>
                         )}
                       </td>
-                    </tr>
+                    </motion.tr>
                   ))}
-                </tbody>
+                </motion.tbody>
               </table>
             </div>
           ) : (
             <p className="muted">Aucune facture pour le moment.</p>
           )}
-        </section>
+        </motion.section>
 
         {/* ── Moyens enregistrés + Paiement sécurisé ── */}
-        <div className="dash-grid dash-grid-even">
+        <motion.div className="dash-grid dash-grid-even" variants={item}>
           <section className="card">
             <h2>Moyens enregistrés</h2>
             {methods.length ? (
@@ -336,8 +357,8 @@ ${inv.paidAt ? `<div><dt>Payée le</dt><dd>${fmtDate(inv.paidAt)}</dd></div><div
               Le paiement se fait chez Stripe, Flutterwave ou Wise. KWABO ne conserve jamais les données de votre carte bancaire.
             </p>
           </section>
-        </div>
-      </div>
+        </motion.div>
+      </motion.div>
 
       {/* ── Pay Invoice Dialog ── */}
       {selectedInvoice && (
@@ -405,6 +426,6 @@ ${inv.paidAt ? `<div><dt>Payée le</dt><dd>${fmtDate(inv.paidAt)}</dd></div><div
           </div>
         </div>
       )}
-    </div>
+    </motion.div>
   );
 };
