@@ -176,22 +176,23 @@ export const ForgotPasswordPage: React.FC = () => {
           </p>
         </div>
       ) : step === 'sent' ? (
-        <div>
-          <div className="mb-4 inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-[#e8f5ee] text-[#1a5c3a]">
-            <CheckCircle2 className="h-6 w-6" />
+        <div className="text-center">
+          <div className="mx-auto mb-3 inline-flex h-11 w-11 items-center justify-center rounded-2xl bg-[#e8f5ee] text-[#1a5c3a]">
+            <CheckCircle2 className="h-5 w-5" />
           </div>
-          <h2 className="font-display text-3xl font-semibold tracking-tight text-[#1a1f1b] sm:text-[34px]">
+          <h2 className="font-display text-xl font-semibold tracking-tight text-[#1a1f1b] sm:text-2xl">
             E-mail envoyé
           </h2>
-          <p className="mt-2 text-base text-[#56635b]">
-            Si un compte correspond à <strong>{email}</strong>, vous allez recevoir un e-mail contenant un lien valable 1 heure pour définir un nouveau mot de passe.
+          <p className="mx-auto mt-2 max-w-sm text-sm leading-relaxed text-[#56635b]">
+            Si ce compte existe, un lien valable 1 h a été envoyé à{' '}
+            <strong className="font-semibold text-[#1a1f1b] break-all">{email}</strong>.
           </p>
 
-          <div className="mt-6 space-y-3">
+          <div className="mt-6 space-y-2.5">
             <button
               type="button"
               onClick={() => navigate('login')}
-              className="min-h-[52px] w-full rounded-full bg-[#1a5c3a] px-5 font-semibold text-white transition hover:bg-[#123f28]"
+              className="min-h-[48px] w-full rounded-full bg-[#1a5c3a] px-5 text-sm font-semibold text-white transition hover:bg-[#123f28]"
             >
               Retour à la connexion
             </button>
