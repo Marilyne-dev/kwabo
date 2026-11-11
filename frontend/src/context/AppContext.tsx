@@ -1,12 +1,33 @@
-import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import { 
-  User, RequestItem, DocumentItem, MessageItem, InvoiceItem, 
-  ReviewItem, AuditItem, NotificationItem, AppRole, Service, RequestStatus, ReferralRecord
+import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
+import {
+  api,
+  ApiError,
+  getToken,
+  setToken,
+  setUnauthorizedHandler,
+  downloadAuthenticatedFile,
+  pingApi,
+} from '../services/api';
+import {
+  DEV_PREVIEW_ADMIN_TOKEN,
+  DEV_PREVIEW_OPERATOR_TOKEN,
+  getDevPreviewUser,
+} from '../services/devPreviewApi';
+import {
+  mapCatalog,
+  mapCounters,
+  mapNotification,
+  mapUser,
+} from '../services/mappers';
+import {
+  User,
+  NotificationItem,
+  AppRole,
+  Service,
+  Category,
+  Counters,
 } from '../types';
-import { 
-  SEED_USERS, SEED_REQUESTS, SEED_DOCUMENTS, SEED_MESSAGES, 
-  SEED_INVOICES, SEED_REVIEWS, SEED_AUDIT, SEED_NOTIFICATIONS, SEED_REFERRALS, SERVICES 
-} from '../data/kwaboData';
+import { CATEGORIES, SERVICES } from '../data/kwaboData';
 
 interface Toast {
   id: string;
@@ -14,90 +35,116 @@ interface Toast {
   type: 'success' | 'info' | 'warning' | 'error';
 }
 
+export interface ConfirmOptions {
+  title: string;
+  message: string;
+  confirmLabel?: string;
+  cancelLabel?: string;
+  variant?: 'danger' | 'warning' | 'primary';
+}
+
+export interface ConfirmState extends ConfirmOptions {
+  resolve: (confirmed: boolean) => void;
+}
+
+export interface LoginResult {
+  success: boolean;
+  needsCode?: boolean;
+  needsVerification?: boolean;
+  message?: string;
+  errors?: Record<string, string[]>;
+}
+
+export interface RegisterPayload {
+  first_name: string;
+  last_name: string;
+  email: string;
+  phone: string;
+  country: string;
+  password: string;
+  sponsor_code?: string;
+  dial?: string;
+}
+
+export interface ResetPasswordParams {
+  email: string;
+  token: string;
+}
+
+export interface PhotoModalState {
+  url: string;
+  title: string;
+  downloadUrl?: string;
+  requiresAuth?: boolean;
+}
+
 interface AppContextType {
   role: AppRole;
   currentUser: User | null;
-  users: User[];
-  requests: RequestItem[];
-  documents: DocumentItem[];
-  messages: MessageItem[];
-  invoices: InvoiceItem[];
-  reviews: ReviewItem[];
-  auditLogs: AuditItem[];
-  notifications: NotificationItem[];
-  referrals: Record<string, ReferralRecord[]>;
+  authLoading: boolean;
+  categories: Category[];
   services: Service[];
-  
+  notifications: NotificationItem[];
+  counters: Counters;
+
   // Navigation / Views
   currentView: string;
   activeRequestId: string | null;
+  activeClientId: string | null;
+  pendingServiceSlug: string | null;
+  resetPasswordParams: ResetPasswordParams | null;
   activeServiceModal: Service | null;
-  activePhotoModal: { url: string; title: string } | null;
+  activePhotoModal: PhotoModalState | null;
   toasts: Toast[];
-  
+  confirmState: ConfirmState | null;
+
   // Navigation actions
-  navigate: (view: string, requestId?: string | null) => void;
+  navigate: (view: string, reqId?: string | null, syncHash?: boolean) => void;
+  navigateFromLink: (link: string) => void;
+  setActiveClientId: (clientId: string | null) => void;
+  setPendingServiceSlug: (slug: string | null) => void;
   openServiceModal: (service: Service) => void;
   closeServiceModal: () => void;
-  openPhotoModal: (url: string, title: string) => void;
+  openPhotoModal: (url: string, title: string, downloadUrl?: string, requiresAuth?: boolean) => void;
   closePhotoModal: () => void;
+  downloadDocument: (urlOrPath: string, filename: string) => Promise<void>;
   addToast: (message: string, type?: 'success' | 'info' | 'warning' | 'error') => void;
   removeToast: (id: string) => void;
-  markThreadRead: (requestId: string, side: 'client' | 'team') => void;
-  
-  // Auth & Roles
-  login: (email: string, password?: string) => { success: boolean; message?: string };
-  logout: () => void;
-  resetPassword: (email: string, password?: string) => { success: boolean; message?: string };
-  switchPersona: (targetRole: AppRole, userId?: string) => void;
-  resetDemoData: () => void;
-  
-  // Domain Operations
-  createRequest: (data: Omit<RequestItem, 'id' | 'tracking' | 'createdAt' | 'history' | 'status' | 'operatorId' | 'quote' | 'rating'>) => RequestItem;
-  updateRequestStatus: (requestId: string, status: RequestStatus) => void;
-  assignOperator: (requestId: string, operatorId: string) => void;
-  setQuote: (requestId: string, amount: number, label: string) => void;
-  addDocument: (doc: Omit<DocumentItem, 'id' | 'createdAt'>) => void;
-  sendMessage: (requestId: string, text: string, attachment?: string) => void;
-  payInvoice: (invoiceId: string, method: 'card' | 'momo' | 'wise' | string) => void;
-  refundInvoice: (invoiceId: string) => void;
-  createInvoice: (invoice: Omit<InvoiceItem, 'id' | 'createdAt' | 'paidAt'>) => void;
-  addReview: (review: Omit<ReviewItem, 'id' | 'at' | 'status'>) => void;
-  updateReviewStatus: (reviewId: string, status: 'published' | 'pending') => void;
-  moderateReview: (reviewId: string, status: 'published' | 'hidden') => void;
-  toggleSuspendUser: (userId: string) => void;
-  eraseUser: (userId: string) => void;
-  updateUserProfile: (data: Partial<User>) => void;
-  addNote: (requestId: string, text: string) => void;
-  addOperator: (operator: Omit<User, 'id' | 'createdAt' | 'referralCode' | 'role' | 'verified' | 'twoFactor' | 'prefs'>) => void;
-  markNotificationRead: (notifId: string) => void;
-  toggleServiceAvailability: (serviceId: string) => void;
-  updateServicePrice: (serviceId: string, newPrice: string) => void;
+  confirm: (options: ConfirmOptions) => Promise<boolean>;
+  resolveConfirm: (confirmed: boolean) => void;
+
+  // Auth & Profile
+  login: (
+    email: string,
+    password: string,
+    options?: { isTeam?: boolean; expectedRole?: 'USER' | 'ADMIN' | 'OPERATOR'; code?: string }
+  ) => Promise<LoginResult>;
+  enterDevPreview?: (targetRole: 'ADMIN' | 'OPERATOR') => Promise<void>;
+  registerAccount: (payload: RegisterPayload) => Promise<{ success: boolean; user?: User; needsVerification?: boolean; message?: string; errors?: Record<string, string[]> }>;
+  verifyEmail: (email: string, code: string) => Promise<{ success: boolean; message?: string; errors?: Record<string, string[]> }>;
+  resendVerificationEmail: (email: string) => Promise<{ success: boolean; message?: string }>;
+  logout: (allDevices?: boolean) => Promise<void>;
+  refreshMe: () => Promise<User | null>;
+  setCurrentUser: React.Dispatch<React.SetStateAction<User | null>>;
+  refreshCatalog: () => Promise<void>;
+  apiStatus: { checked: boolean; ok: boolean; message: string };
+  checkApiHealth: () => Promise<boolean>;
+  refreshCounters: () => Promise<void>;
+  refreshNotifications: () => Promise<void>;
+  markNotificationRead: (notifId: string) => Promise<void>;
+  markAllNotificationsRead: () => Promise<void>;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
 
-const STORAGE_KEYS = {
-  USERS: 'kwabo_users_v3',
-  REQUESTS: 'kwabo_requests_v3',
-  DOCUMENTS: 'kwabo_docs_v3',
-  MESSAGES: 'kwabo_msgs_v3',
-  INVOICES: 'kwabo_invoices_v3',
-  REVIEWS: 'kwabo_reviews_v3',
-  AUDIT: 'kwabo_audit_v3',
-  NOTIFS: 'kwabo_notifs_v3',
-  CURRENT_ROLE: 'kwabo_role_v3',
-  CURRENT_USER_ID: 'kwabo_userid_v3',
-  SERVICES: 'kwabo_services_v3',
-  REFERRALS: 'kwabo_referrals_v3',
-};
-
 // Route helpers for hash synchronization
-export function getHashForView(view: string, reqId: string | null = null, userRole?: AppRole): string {
+export function getHashForView(view: string, reqId: string | null = null): string {
   switch (view) {
     case 'public-home': return '#/';
     case 'public-services': return '#/services';
     case 'login': return '#/connexion';
+    case 'admin-login': return '#/admin/connexion';
+    case 'operator-login': return '#/agent/connexion';
     case 'register': return '#/inscription';
     case 'forgot-password': return '#/mot-de-passe-oublie';
     case 'reset-password': return '#/reinitialiser-mot-de-passe';
@@ -147,6 +194,21 @@ export function getViewFromHash(hash: string, userRole: AppRole): { view: string
 
   // Public & auth
   if (parts[0] === 'connexion') return { view: 'login', reqId: null };
+  if (parts[0] === 'admin' && (!parts[1] || parts[1] === 'connexion' || parts[1] === 'login')) {
+    if (userRole === 'ADMIN') return { view: 'admin-dashboard', reqId: null };
+    if (userRole === 'OPERATOR') return { view: 'operator-dashboard', reqId: null };
+    if (userRole === 'USER') return { view: 'client-dashboard', reqId: null };
+    return { view: 'admin-login', reqId: null };
+  }
+  if (
+    (parts[0] === 'agent' && (!parts[1] || parts[1] === 'connexion' || parts[1] === 'login')) ||
+    ((parts[0] === 'operateur' || parts[0] === 'equipe') && (parts[1] === 'connexion' || parts[1] === 'login'))
+  ) {
+    if (userRole === 'OPERATOR') return { view: 'operator-dashboard', reqId: null };
+    if (userRole === 'ADMIN') return { view: 'admin-dashboard', reqId: null };
+    if (userRole === 'USER') return { view: 'client-dashboard', reqId: null };
+    return { view: 'operator-login', reqId: null };
+  }
   if (parts[0] === 'inscription') return { view: 'register', reqId: null };
   if (parts[0] === 'mot-de-passe-oublie') return { view: 'forgot-password', reqId: null };
   if (parts[0] === 'reinitialiser-mot-de-passe') return { view: 'reset-password', reqId: null };
@@ -156,6 +218,7 @@ export function getViewFromHash(hash: string, userRole: AppRole): { view: string
 
   // Client space (#/espace/...)
   if (parts[0] === 'espace') {
+    if (userRole === 'VISITOR') return { view: 'login', reqId: null };
     const section = parts[1];
     const id = parts[2] || null;
     switch (section) {
@@ -191,7 +254,6 @@ export function getViewFromHash(hash: string, userRole: AppRole): { view: string
     }
   }
 
-  // If user is logged in as USER but visits root #/demandes or #/messages
   if (userRole === 'USER') {
     if (parts[0] === 'demandes') return parts[1] ? { view: 'client-request-detail', reqId: parts[1] } : { view: 'client-requests', reqId: null };
     if (parts[0] === 'messages') return { view: 'client-messages', reqId: parts[1] || null };
@@ -201,585 +263,578 @@ export function getViewFromHash(hash: string, userRole: AppRole): { view: string
   return { view: 'public-home', reqId: null };
 }
 
+function detectResetParamsFromUrl(): ResetPasswordParams | null {
+  try {
+    const pathname = window.location.pathname || '';
+    const hash = window.location.hash || '';
+    const isResetPath = pathname.includes('reinitialiser-mot-de-passe');
+    const isResetHash = hash.includes('reinitialiser-mot-de-passe');
+
+    if (!isResetPath && !isResetHash) return null;
+
+    const searchParams = new URLSearchParams(window.location.search);
+    if (hash.includes('?')) {
+      const hashQuery = hash.split('?')[1];
+      const hashParams = new URLSearchParams(hashQuery);
+      hashParams.forEach((v, k) => {
+        if (!searchParams.has(k)) searchParams.set(k, v);
+      });
+    }
+
+    const email = searchParams.get('email') || '';
+    const token = searchParams.get('token') || '';
+    if (email || token) {
+      return { email, token };
+    }
+    return { email: '', token: '' };
+  } catch {
+    return null;
+  }
+}
+
+function detectInitialAuthViewFromPath(): string | null {
+  try {
+    const pathname = (window.location.pathname || '').replace(/\/+$/, '');
+    if (
+      pathname.endsWith('/agent/connexion') ||
+      pathname.endsWith('/agent/login') ||
+      pathname.endsWith('/agent') ||
+      pathname.endsWith('/operateur/connexion') ||
+      pathname.endsWith('/equipe/connexion')
+    ) {
+      return 'operator-login';
+    }
+    if (
+      pathname.endsWith('/admin/connexion') ||
+      pathname.endsWith('/admin/login') ||
+      pathname.endsWith('/admin')
+    ) {
+      return 'admin-login';
+    }
+    if (pathname.endsWith('/connexion') || pathname.endsWith('/login')) {
+      return 'login';
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
-  // Load state from localStorage or use seeds
-  const [users, setUsers] = useState<User[]>(() => {
-    const saved = localStorage.getItem(STORAGE_KEYS.USERS);
-    return saved ? JSON.parse(saved) : SEED_USERS;
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [authLoading, setAuthLoading] = useState<boolean>(() => Boolean(getToken()));
+  const role: AppRole = currentUser ? currentUser.role : 'VISITOR';
+
+  const [categories, setCategories] = useState<Category[]>(CATEGORIES);
+  const [services, setServices] = useState<Service[]>(SERVICES);
+  const [apiStatus, setApiStatus] = useState<{ checked: boolean; ok: boolean; message: string }>({
+    checked: false,
+    ok: false,
+    message: '',
+  });
+  const [notifications, setNotifications] = useState<NotificationItem[]>([]);
+  const [counters, setCounters] = useState<Counters>({
+    unreadMessages: 0,
+    unreadNotifications: 0,
+    dueInvoices: 0,
+    pendingReviews: 0,
   });
 
-  const [requests, setRequests] = useState<RequestItem[]>(() => {
-    const saved = localStorage.getItem(STORAGE_KEYS.REQUESTS);
-    return saved ? JSON.parse(saved) : SEED_REQUESTS;
+  const [resetPasswordParams] = useState<ResetPasswordParams | null>(() => detectResetParamsFromUrl());
+  const [currentView, setCurrentView] = useState<string>(() => {
+    if (detectResetParamsFromUrl()) return 'reset-password';
+    return detectInitialAuthViewFromPath() || 'public-home';
   });
-
-  const [documents, setDocuments] = useState<DocumentItem[]>(() => {
-    const saved = localStorage.getItem(STORAGE_KEYS.DOCUMENTS);
-    return saved ? JSON.parse(saved) : SEED_DOCUMENTS;
-  });
-
-  const [messages, setMessages] = useState<MessageItem[]>(() => {
-    const saved = localStorage.getItem(STORAGE_KEYS.MESSAGES);
-    return saved ? JSON.parse(saved) : SEED_MESSAGES;
-  });
-
-  const [invoices, setInvoices] = useState<InvoiceItem[]>(() => {
-    const saved = localStorage.getItem(STORAGE_KEYS.INVOICES);
-    return saved ? JSON.parse(saved) : SEED_INVOICES;
-  });
-
-  const [reviews, setReviews] = useState<ReviewItem[]>(() => {
-    const saved = localStorage.getItem(STORAGE_KEYS.REVIEWS);
-    return saved ? JSON.parse(saved) : SEED_REVIEWS;
-  });
-
-  const [auditLogs, setAuditLogs] = useState<AuditItem[]>(() => {
-    const saved = localStorage.getItem(STORAGE_KEYS.AUDIT);
-    return saved ? JSON.parse(saved) : SEED_AUDIT;
-  });
-
-  const [notifications, setNotifications] = useState<NotificationItem[]>(() => {
-    const saved = localStorage.getItem(STORAGE_KEYS.NOTIFS);
-    return saved ? JSON.parse(saved) : SEED_NOTIFICATIONS;
-  });
-
-  const [services, setServices] = useState<Service[]>(() => {
-    const saved = localStorage.getItem(STORAGE_KEYS.SERVICES);
-    return saved ? JSON.parse(saved) : SERVICES;
-  });
-
-  const [referrals, setReferrals] = useState<Record<string, ReferralRecord[]>>(() => {
-    const saved = localStorage.getItem(STORAGE_KEYS.REFERRALS);
-    return saved ? JSON.parse(saved) : SEED_REFERRALS;
-  });
-
-  // Role and active user
-  const [role, setRole] = useState<AppRole>(() => {
-    const saved = localStorage.getItem(STORAGE_KEYS.CURRENT_ROLE);
-    return (saved as AppRole) || 'VISITOR';
-  });
-
-  const [currentUserId, setCurrentUserId] = useState<string | null>(() => {
-    const saved = localStorage.getItem(STORAGE_KEYS.CURRENT_USER_ID);
-    return saved || null;
-  });
-
-  const currentUser = users.find(u => u.id === currentUserId) || null;
-
-  // View state
-  const [currentView, setCurrentView] = useState<string>('public-home');
   const [activeRequestId, setActiveRequestId] = useState<string | null>(null);
+  const [activeClientId, setActiveClientId] = useState<string | null>(null);
+  const [pendingServiceSlug, setPendingServiceSlug] = useState<string | null>(null);
   const [activeServiceModal, setActiveServiceModal] = useState<Service | null>(null);
-  const [activePhotoModal, setActivePhotoModal] = useState<{ url: string; title: string } | null>(null);
+  const [activePhotoModal, setActivePhotoModal] = useState<PhotoModalState | null>(null);
   const [toasts, setToasts] = useState<Toast[]>([]);
+  const [confirmState, setConfirmState] = useState<ConfirmState | null>(null);
 
-  // Sync to localStorage
-  useEffect(() => { localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(users)); }, [users]);
-  useEffect(() => { localStorage.setItem(STORAGE_KEYS.REQUESTS, JSON.stringify(requests)); }, [requests]);
-  useEffect(() => { localStorage.setItem(STORAGE_KEYS.DOCUMENTS, JSON.stringify(documents)); }, [documents]);
-  useEffect(() => { localStorage.setItem(STORAGE_KEYS.MESSAGES, JSON.stringify(messages)); }, [messages]);
-  useEffect(() => { localStorage.setItem(STORAGE_KEYS.INVOICES, JSON.stringify(invoices)); }, [invoices]);
-  useEffect(() => { localStorage.setItem(STORAGE_KEYS.REVIEWS, JSON.stringify(reviews)); }, [reviews]);
-  useEffect(() => { localStorage.setItem(STORAGE_KEYS.AUDIT, JSON.stringify(auditLogs)); }, [auditLogs]);
-  useEffect(() => { localStorage.setItem(STORAGE_KEYS.NOTIFS, JSON.stringify(notifications)); }, [notifications]);
-  useEffect(() => { localStorage.setItem(STORAGE_KEYS.SERVICES, JSON.stringify(services)); }, [services]);
-  useEffect(() => { localStorage.setItem(STORAGE_KEYS.REFERRALS, JSON.stringify(referrals)); }, [referrals]);
-  useEffect(() => { localStorage.setItem(STORAGE_KEYS.CURRENT_ROLE, role); }, [role]);
-  useEffect(() => {
-    if (currentUserId) localStorage.setItem(STORAGE_KEYS.CURRENT_USER_ID, currentUserId);
-    else localStorage.removeItem(STORAGE_KEYS.CURRENT_USER_ID);
-  }, [currentUserId]);
+  const confirm = useCallback((options: ConfirmOptions): Promise<boolean> => {
+    return new Promise((resolve) => {
+      setConfirmState(prev => {
+        if (prev) prev.resolve(false);
+        return { ...options, resolve };
+      });
+    });
+  }, []);
 
-  const addToast = (message: string, type: 'success' | 'info' | 'warning' | 'error' = 'success') => {
-    const id = `toast-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`;
-    setToasts(prev => [...prev, { id, message, type }]);
-    setTimeout(() => removeToast(id), 4000);
-  };
+  const resolveConfirm = useCallback((confirmed: boolean) => {
+    setConfirmState(prev => {
+      if (prev) prev.resolve(confirmed);
+      return null;
+    });
+  }, []);
 
-  const removeToast = (id: string) => {
+  const removeToast = useCallback((id: string) => {
     setToasts(prev => prev.filter(t => t.id !== id));
-  };
+  }, []);
 
-  const navigate = (view: string, reqId: string | null = null, syncHash: boolean = true) => {
+  const addToast = useCallback((message: string, type: 'success' | 'info' | 'warning' | 'error' = 'success') => {
+    const id = `toast-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+    const durationMs = type === 'error' ? 6000 : type === 'warning' ? 5500 : 4500;
+    setToasts(prev => [...prev, { id, message, type }]);
+    setTimeout(() => removeToast(id), durationMs);
+  }, [removeToast]);
+
+  const navigate = useCallback((view: string, reqId: string | null = null, syncHash: boolean = true) => {
     setCurrentView(view);
     if (reqId !== undefined) {
       setActiveRequestId(reqId);
     }
     if (syncHash) {
-      const newHash = getHashForView(view, reqId, role);
+      const newHash = getHashForView(view, reqId);
       if (window.location.hash !== newHash) {
         window.history.pushState(null, '', newHash);
       }
     }
     window.scrollTo({ top: 0, behavior: 'smooth' });
-  };
+  }, []);
 
-  // Sync hash routing on mount and on hashchange
+  const navigateFromLink = useCallback((link: string) => {
+    if (!link) return;
+    const clean = link.replace(/^#/, '').split('?')[0];
+    const parts = clean.split('/').filter(Boolean);
+
+    if (parts[0] === 'admin' && parts[1] === 'requests') {
+      navigate(parts[2] ? 'admin-request-detail' : 'admin-requests', parts[2] || null);
+      return;
+    }
+    if (parts[0] === 'requests') {
+      const targetDetail = role === 'ADMIN' || role === 'OPERATOR' ? 'admin-request-detail' : 'client-request-detail';
+      const targetList = role === 'ADMIN' ? 'admin-requests' : role === 'OPERATOR' ? 'operator-missions' : 'client-requests';
+      navigate(parts[1] ? targetDetail : targetList, parts[1] || null);
+      return;
+    }
+    if (parts[0] === 'requests-detail' && parts[1]) {
+      navigate(role === 'ADMIN' || role === 'OPERATOR' ? 'admin-request-detail' : 'client-request-detail', parts[1]);
+      return;
+    }
+    if (parts[0] === 'payments' || parts[0] === 'invoices') {
+      navigate(role === 'ADMIN' ? 'admin-invoices' : 'client-invoices');
+      return;
+    }
+    if (parts[0] === 'messages') {
+      navigate(role === 'ADMIN' || role === 'OPERATOR' ? 'admin-messages' : 'client-messages', parts[1] || null);
+      return;
+    }
+    if (parts[0] === 'documents') {
+      navigate('client-documents');
+      return;
+    }
+    if (parts[0] === 'referrals') {
+      navigate(role === 'ADMIN' ? 'admin-referrals' : 'client-referral');
+      return;
+    }
+    if (parts[0] === 'reviews') {
+      navigate('admin-reviews');
+      return;
+    }
+    if (parts[0] === 'clients') {
+      navigate('admin-clients');
+      return;
+    }
+    if (parts[0] === 'profile') {
+      navigate('client-profile');
+    }
+  }, [navigate, role]);
+
+  const refreshCatalog = useCallback(async () => {
+    try {
+      const res = await api<{ data: any[] }>('/catalog', { skipAuthRedirect: true });
+      if (Array.isArray(res?.data) && res.data.length > 0) {
+        const mapped = mapCatalog(res.data);
+        setCategories(mapped.categories);
+        setServices(mapped.services);
+      }
+    } catch (err) {
+      console.error('Catalogue indisponible, données locales gardées', err);
+    }
+  }, []);
+
+  const checkApiHealth = useCallback(async (): Promise<boolean> => {
+    try {
+      const res = await pingApi();
+      setApiStatus({ checked: true, ok: res.ok, message: res.message });
+      return res.ok;
+    } catch {
+      setApiStatus({ checked: true, ok: false, message: 'API indisponible' });
+      return false;
+    }
+  }, []);
+
+  const refreshCounters = useCallback(async () => {
+    if (!getToken()) return;
+    try {
+      const res = await api('/counters');
+      setCounters(mapCounters(res));
+    } catch {
+      // Ignore transient counter failures
+    }
+  }, []);
+
+  const refreshNotifications = useCallback(async () => {
+    if (!getToken()) return;
+    try {
+      const res = await api<{ data: any[]; meta?: { unread_total?: number } }>('/notifications');
+      const list = Array.isArray(res?.data) ? res.data.map(mapNotification) : [];
+      setNotifications(list);
+      if (res?.meta?.unread_total !== undefined) {
+        setCounters(prev => ({ ...prev, unreadNotifications: Number(res.meta!.unread_total) }));
+      }
+    } catch {
+      // Ignore transient notification errors
+    }
+  }, []);
+
+  const refreshMe = useCallback(async (): Promise<User | null> => {
+    if (!getToken()) {
+      setCurrentUser(null);
+      return null;
+    }
+    try {
+      const res = await api<{ data?: any }>('/me', { skipAuthRedirect: true });
+      const user = mapUser(res?.data ?? res);
+      setCurrentUser(user);
+      return user;
+    } catch {
+      setToken(null);
+      setCurrentUser(null);
+      return null;
+    }
+  }, []);
+
+  // Register global 401 handler
+  useEffect(() => {
+    setUnauthorizedHandler(() => {
+      const targetView =
+        role === 'ADMIN' ? 'admin-login' : role === 'OPERATOR' ? 'operator-login' : 'login';
+      setCurrentUser(null);
+      setNotifications([]);
+      setCounters({ unreadMessages: 0, unreadNotifications: 0, dueInvoices: 0, pendingReviews: 0 });
+      addToast('Session expirée. Veuillez vous reconnecter.', 'warning');
+      navigate(targetView);
+    });
+    return () => setUnauthorizedHandler(null);
+  }, [addToast, navigate, role]);
+
+  // Initial load: API health check + catalog + restore session if token exists
+  useEffect(() => {
+    checkApiHealth();
+    refreshCatalog();
+
+    if (resetPasswordParams) {
+      setAuthLoading(false);
+      return;
+    }
+
+    const token = getToken();
+    if (!token) {
+      setAuthLoading(false);
+      if (window.location.hash && window.location.hash !== '#/' && window.location.hash !== '#') {
+        const { view, reqId } = getViewFromHash(window.location.hash, 'VISITOR');
+        setCurrentView(view);
+        setActiveRequestId(reqId);
+      }
+      return;
+    }
+
+    (async () => {
+      const user = await refreshMe();
+      if (user) {
+        await Promise.all([refreshCounters(), refreshNotifications()]);
+        if (window.location.hash && window.location.hash !== '#/' && window.location.hash !== '#') {
+          const { view, reqId } = getViewFromHash(window.location.hash, user.role);
+          setCurrentView(view);
+          setActiveRequestId(reqId);
+        } else {
+          if (user.role === 'ADMIN') setCurrentView('admin-dashboard');
+          else if (user.role === 'OPERATOR') setCurrentView('operator-dashboard');
+          else setCurrentView('client-dashboard');
+        }
+      } else {
+        setCurrentView('public-home');
+      }
+      setAuthLoading(false);
+    })();
+  }, [checkApiHealth, refreshCatalog, refreshCounters, refreshMe, refreshNotifications, resetPasswordParams]);
+
+  // Sync hash routing on hashchange
   useEffect(() => {
     const handleHashChange = () => {
       const { view, reqId } = getViewFromHash(window.location.hash, role);
       setCurrentView(view);
       setActiveRequestId(reqId);
     };
-
-    if (window.location.hash && window.location.hash !== '#/' && window.location.hash !== '#') {
-      const { view, reqId } = getViewFromHash(window.location.hash, role);
-      setCurrentView(view);
-      setActiveRequestId(reqId);
-    }
-
     window.addEventListener('hashchange', handleHashChange);
     return () => window.removeEventListener('hashchange', handleHashChange);
   }, [role]);
 
-  const markThreadRead = (requestId: string, side: 'client' | 'team') => {
-    setMessages(prev => prev.map(m => {
-      if (m.requestId === requestId && m.from !== side && !m.read) {
-        return { ...m, read: true };
-      }
-      return m;
-    }));
-  };
-
   const openServiceModal = (service: Service) => setActiveServiceModal(service);
   const closeServiceModal = () => setActiveServiceModal(null);
-  const openPhotoModal = (url: string, title: string) => setActivePhotoModal({ url, title });
+
+  const openPhotoModal = (url: string, title: string, downloadUrl?: string, requiresAuth?: boolean) => {
+    setActivePhotoModal({ url, title, downloadUrl, requiresAuth });
+  };
   const closePhotoModal = () => setActivePhotoModal(null);
 
-  // Authentication
-  const login = (email: string, _password?: string) => {
-    const normalized = email.trim().toLowerCase();
-    const found = users.find(u => u.email.toLowerCase() === normalized);
-    if (!found) {
-      return { success: false, message: 'Adresse email non reconnue dans l\'annuaire KWABO.' };
+  const downloadDocument = useCallback(async (urlOrPath: string, filename: string) => {
+    try {
+      await downloadAuthenticatedFile(urlOrPath, filename);
+      addToast(`Téléchargement de « ${filename} » terminé.`);
+    } catch (err: any) {
+      addToast(err?.message || 'Erreur lors du téléchargement.', 'error');
     }
-    if (found.suspended) {
-      return { success: false, message: 'Ce compte utilisateur a été temporairement suspendu.' };
-    }
+  }, [addToast]);
 
-    setCurrentUserId(found.id);
-    setRole(found.role);
-    addToast(`Bienvenue ${found.firstName} ! Connexion réussie.`);
+  const postAuthSuccess = useCallback(async (rawUser: any, token: string) => {
+    setToken(token);
+    const user = mapUser(rawUser);
+    setCurrentUser(user);
+    await Promise.all([refreshCounters(), refreshNotifications()]);
+    addToast(`Bienvenue ${user.firstName} ! Connexion réussie.`);
 
-    // Route to appropriate view
-    if (found.role === 'ADMIN') {
+    if (pendingServiceSlug && user.role === 'USER') {
+      navigate('client-new-request');
+    } else if (user.role === 'ADMIN') {
       navigate('admin-dashboard');
-    } else if (found.role === 'OPERATOR') {
+    } else if (user.role === 'OPERATOR') {
       navigate('operator-dashboard');
     } else {
       navigate('client-dashboard');
     }
-    return { success: true };
-  };
+    return user;
+  }, [addToast, navigate, pendingServiceSlug, refreshCounters, refreshNotifications]);
 
-  const logout = () => {
-    setCurrentUserId(null);
-    setRole('VISITOR');
-    addToast('Vous êtes à présent déconnecté.', 'info');
-    navigate('public-home');
-  };
-
-  const resetPassword = (email: string, _newPassword?: string) => {
-    const normalized = email.trim().toLowerCase();
-    const found = users.find(u => u.email.toLowerCase() === normalized);
-    if (!found) {
-      return { success: false, message: 'Cette adresse e-mail n\'existe pas dans notre annuaire.' };
-    }
-    return { success: true, message: 'Mot de passe mis à jour avec succès.' };
-  };
-
-  // Switcher de recette front-end (permet de basculer instantanément de rôle sans polluer la page de login)
-  const switchPersona = (targetRole: AppRole, userId?: string) => {
-    if (targetRole === 'VISITOR') {
-      setCurrentUserId(null);
-      setRole('VISITOR');
-      addToast('Basculé en mode Visiteur public', 'info');
-      navigate('public-home');
-      return;
-    }
-
-    let targetUser: User | undefined;
-    if (userId) {
-      targetUser = users.find(u => u.id === userId);
-    } else if (targetRole === 'ADMIN') {
-      targetUser = users.find(u => u.role === 'ADMIN');
-    } else if (targetRole === 'OPERATOR') {
-      targetUser = users.find(u => u.role === 'OPERATOR');
-    } else {
-      targetUser = users.find(u => u.role === 'USER');
-    }
-
-    if (targetUser) {
-      setCurrentUserId(targetUser.id);
-      setRole(targetUser.role);
-      addToast(`Mode test : connecté en tant que ${targetUser.firstName} (${targetUser.role})`, 'success');
-      
-      if (targetUser.role === 'ADMIN') navigate('admin-dashboard');
-      else if (targetUser.role === 'OPERATOR') navigate('operator-dashboard');
-      else navigate('client-dashboard');
-    }
-  };
-
-  const resetDemoData = () => {
-    setUsers(SEED_USERS);
-    setRequests(SEED_REQUESTS);
-    setDocuments(SEED_DOCUMENTS);
-    setMessages(SEED_MESSAGES);
-    setInvoices(SEED_INVOICES);
-    setReviews(SEED_REVIEWS);
-    setAuditLogs(SEED_AUDIT);
-    setNotifications(SEED_NOTIFICATIONS);
-    setServices(SERVICES);
-    setReferrals(SEED_REFERRALS);
-    addToast('Données de démonstration réinitialisées avec succès.', 'info');
-  };
-
-  // Requests
-  const createRequest = (data: Omit<RequestItem, 'id' | 'tracking' | 'createdAt' | 'history' | 'status' | 'operatorId' | 'quote' | 'rating'>) => {
-    const nextNum = requests.length + 1;
-    const padded = String(nextNum).padStart(4, '0');
-    const newReq: RequestItem = {
-      ...data,
-      id: `r${padded}`,
-      tracking: `KW-2026-${padded}`,
-      status: 'pending',
-      operatorId: null,
-      quote: null,
-      rating: null,
-      createdAt: new Date().toISOString(),
-      history: [
-        { at: new Date().toISOString(), text: 'Demande enregistrée sur la plateforme' }
-      ]
-    };
-
-    setRequests(prev => [newReq, ...prev]);
-
-    // Add audit entry
-    const actorName = currentUser ? `${currentUser.firstName} ${currentUser.lastName}` : 'Nouveau client';
-    setAuditLogs(prev => [
-      { id: `j-${Date.now()}`, at: new Date().toISOString(), actor: actorName, text: `Nouvelle demande créée : ${newReq.title} (${newReq.tracking})` },
-      ...prev
-    ]);
-
-    // Admin notification
-    setNotifications(prev => [
-      { id: `n-${Date.now()}`, userId: 'u10', text: `Nouvelle demande : ${newReq.title}`, href: `admin-requests/${newReq.id}`, at: new Date().toISOString(), read: false },
-      ...prev
-    ]);
-
-    addToast('Votre demande a été transmise avec succès à l\'équipe KWABO !');
-    return newReq;
-  };
-
-  const updateRequestStatus = (requestId: string, status: RequestStatus) => {
-    setRequests(prev => prev.map(r => {
-      if (r.id !== requestId) return r;
-      const statusLabels: Record<RequestStatus, string> = {
-        pending: 'Mise en attente',
-        active: 'Mission démarrée et active',
-        done: 'Mission finalisée avec succès',
-        cancelled: 'Mission annulée'
+  const login = async (
+    email: string,
+    password: string,
+    options?: { isTeam?: boolean; expectedRole?: 'USER' | 'ADMIN' | 'OPERATOR'; code?: string }
+  ): Promise<LoginResult> => {
+    const expectedRole = options?.expectedRole;
+    const useTeamEndpoint =
+      options?.isTeam ?? (expectedRole === 'ADMIN' || expectedRole === 'OPERATOR');
+    const endpoint = useTeamEndpoint ? '/admin/login' : '/login';
+    try {
+      const payload: Record<string, any> = {
+        email: email.trim(),
+        password,
+        device_name: 'KWABO Web',
       };
-      return {
-        ...r,
-        status,
-        history: [
-          ...r.history,
-          { at: new Date().toISOString(), text: `Statut mis à jour : ${statusLabels[status]}` }
-        ]
-      };
-    }));
+      if (options?.code) {
+        payload.code = options.code.trim();
+      }
 
-    setAuditLogs(prev => [
-      { id: `j-${Date.now()}`, at: new Date().toISOString(), actor: currentUser ? currentUser.firstName : 'Admin', text: `Demande #${requestId} passée à l'état ${status}` },
-      ...prev
-    ]);
-
-    addToast(`Le statut de la demande a été mis à jour : ${status}`);
-  };
-
-  const assignOperator = (requestId: string, operatorId: string) => {
-    const op = users.find(u => u.id === operatorId);
-    setRequests(prev => prev.map(r => {
-      if (r.id !== requestId) return r;
-      return {
-        ...r,
-        operatorId,
-        history: [
-          ...r.history,
-          { at: new Date().toISOString(), text: `Mission confiée à l'agent terrain ${op ? op.firstName + ' ' + op.lastName : operatorId}` }
-        ]
-      };
-    }));
-
-    setAuditLogs(prev => [
-      { id: `j-${Date.now()}`, at: new Date().toISOString(), actor: 'Équipe KWABO', text: `Attribution mission #${requestId} à ${op ? op.firstName : operatorId}` },
-      ...prev
-    ]);
-
-    addToast(`Mission assignée à ${op ? op.firstName + ' ' + op.lastName : 'l\'agent'}`);
-  };
-
-  const setQuote = (requestId: string, amount: number, label: string) => {
-    setRequests(prev => prev.map(r => {
-      if (r.id !== requestId) return r;
-      return {
-        ...r,
-        quote: { amount, label },
-        history: [
-          ...r.history,
-          { at: new Date().toISOString(), text: `Devis émis : ${amount} € (${label})` }
-        ]
-      };
-    }));
-
-    // Create an invoice in due state
-    const targetReq = requests.find(r => r.id === requestId);
-    if (targetReq) {
-      createInvoice({
-        requestId,
-        userId: targetReq.userId,
-        label,
-        amount,
-        status: 'due',
-        method: null
+      const res = await api<any>(endpoint, {
+        method: 'POST',
+        body: payload,
+        skipAuthRedirect: true,
       });
 
-      // Notify client
-      setNotifications(prev => [
-        { id: `n-${Date.now()}`, userId: targetReq.userId, text: `Votre devis pour « ${targetReq.title} » est prêt (${amount} €)`, href: `requests-detail/${requestId}`, at: new Date().toISOString(), read: false },
-        ...prev
-      ]);
-    }
+      if (res?.needs_code) {
+        return { success: false, needsCode: true, message: 'Code d\'authentification à 6 chiffres requis.' };
+      }
 
-    addToast(`Devis de ${amount} € enregistré pour la demande #${requestId}`);
-  };
+      if (res?.token && res?.user) {
+        const mappedUser = mapUser(res.user);
+        if (expectedRole && mappedUser.role !== expectedRole) {
+          await api('/logout', {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${res.token}` },
+            skipAuthRedirect: true,
+          }).catch(() => {});
 
-  const addDocument = (doc: Omit<DocumentItem, 'id' | 'createdAt'>) => {
-    const newDoc: DocumentItem = {
-      ...doc,
-      id: `d-${Date.now()}`,
-      createdAt: new Date().toISOString()
-    };
-    setDocuments(prev => [newDoc, ...prev]);
+          const mismatchMessage =
+            expectedRole === 'ADMIN'
+              ? 'Cet accès est réservé aux administrateurs. Connectez-vous depuis le portail agent terrain (#/agent/connexion).'
+              : expectedRole === 'OPERATOR'
+                ? 'Cet accès est réservé aux agents terrain. Connectez-vous depuis le portail administrateur (#/admin/connexion).'
+                : 'Veuillez utiliser votre espace dédié pour vous connecter.';
 
-    // Update request history
-    setRequests(prev => prev.map(r => {
-      if (r.id !== doc.requestId) return r;
-      return {
-        ...r,
-        history: [
-          ...r.history,
-          { at: new Date().toISOString(), text: `Nouveau document déposé : ${doc.name}` }
-        ]
-      };
-    }));
+          return { success: false, message: mismatchMessage };
+        }
 
-    addToast(`Document « ${doc.name} » déposé avec succès.`);
-  };
+        await postAuthSuccess(res.user, res.token);
+        return { success: true };
+      }
 
-  const sendMessage = (requestId: string, text: string, attachment?: string) => {
-    if (!text.trim() && !attachment) return;
-    const isTeam = role === 'ADMIN' || role === 'OPERATOR';
-    const authorName = currentUser ? `${currentUser.firstName} ${currentUser.lastName}` : 'Client';
-    
-    const newMsg: MessageItem = {
-      id: `m-${Date.now()}`,
-      requestId,
-      from: isTeam ? 'team' : 'client',
-      author: authorName,
-      text: text.trim(),
-      attachment,
-      at: new Date().toISOString(),
-      read: false
-    };
-
-    setMessages(prev => [...prev, newMsg]);
-  };
-
-  const payInvoice = (invoiceId: string, method: 'card' | 'momo' | 'wise' | string) => {
-    setInvoices(prev => prev.map(inv => {
-      if (inv.id !== invoiceId) return inv;
-      return {
-        ...inv,
-        status: 'paid',
-        method: method as any,
-        paidAt: new Date().toISOString()
-      };
-    }));
-
-    // Update associated request status to active if pending
-    const inv = invoices.find(i => i.id === invoiceId);
-    if (inv) {
-      setRequests(prev => prev.map(r => {
-        if (r.id !== inv.requestId) return r;
+      return { success: false, message: 'Réponse inattendue du serveur.' };
+    } catch (err) {
+      if (err instanceof ApiError) {
+        if (err.status === 403 && err.data?.needs_verification) {
+          return {
+            success: false,
+            needsVerification: true,
+            message: 'Votre adresse e-mail n\'est pas encore vérifiée. Saisissez le code reçu par e-mail.',
+          };
+        }
         return {
-          ...r,
-          status: 'active',
-          history: [
-            ...r.history,
-            { at: new Date().toISOString(), text: `Paiement reçu (${inv.amount} € via ${String(method).toUpperCase()}) - Mission activée` }
-          ]
+          success: false,
+          message: err.message,
+          errors: err.errors,
         };
-      }));
-
-      setAuditLogs(prev => [
-        { id: `j-${Date.now()}`, at: new Date().toISOString(), actor: 'Paiement', text: `Encaissement ${inv.amount} € (${String(method).toUpperCase()}) pour facture #${invoiceId}` },
-        ...prev
-      ]);
-    }
-
-    addToast('Paiement validé avec succès ! Votre mission démarre immédiatement.');
-  };
-
-  const refundInvoice = (invoiceId: string) => {
-    setInvoices(prev => prev.map(inv => inv.id === invoiceId ? { ...inv, status: 'refunded' } : inv));
-    addToast(`Facture #${invoiceId} marquée comme remboursée.`);
-  };
-
-  const createInvoice = (invoice: Omit<InvoiceItem, 'id' | 'createdAt' | 'paidAt'>) => {
-    const invNum = invoices.length + 1;
-    const newInv: InvoiceItem = {
-      ...invoice,
-      id: `F-2026-${String(invNum).padStart(4, '0')}`,
-      createdAt: new Date().toISOString(),
-      paidAt: null
-    };
-    setInvoices(prev => [newInv, ...prev]);
-  };
-
-  const addReview = (review: Omit<ReviewItem, 'id' | 'at' | 'status'>) => {
-    const newReview: ReviewItem = {
-      ...review,
-      id: `a-${Date.now()}`,
-      status: 'pending',
-      at: new Date().toISOString()
-    };
-    setReviews(prev => [newReview, ...prev]);
-    addToast('Merci pour votre avis ! Il sera visible après validation par notre équipe.');
-  };
-
-  const updateReviewStatus = (reviewId: string, status: 'published' | 'pending') => {
-    setReviews(prev => prev.map(r => r.id === reviewId ? { ...r, status } : r));
-    addToast(`Avis ${status === 'published' ? 'publié' : 'mis en modération'}.`);
-  };
-
-  const moderateReview = (reviewId: string, status: 'published' | 'hidden') => {
-    setReviews(prev => prev.map(r => r.id === reviewId ? { ...r, status } : r));
-    addToast(`Avis ${status === 'published' ? 'publié' : 'masqué'}.`);
-  };
-
-  const toggleSuspendUser = (userId: string) => {
-    setUsers(prev => prev.map(u => u.id === userId ? { ...u, suspended: !u.suspended } : u));
-    const target = users.find(u => u.id === userId);
-    addToast(`Compte de ${target?.firstName} ${target?.suspended ? 'réactivé' : 'suspendu'}.`);
-  };
-
-  const eraseUser = (userId: string) => {
-    setUsers(prev => prev.filter(u => u.id !== userId));
-    addToast('Données du compte effacées conformément au RGPD.');
-  };
-
-  const updateUserProfile = (data: Partial<User>) => {
-    if (currentUser) {
-      setUsers(prev => prev.map(u => u.id === currentUser.id ? { ...u, ...data } : u));
+      }
+      return { success: false, message: 'Erreur réseau. Veuillez réessayer.' };
     }
   };
 
-  const addNote = (requestId: string, text: string) => {
-    const author = currentUser ? `${currentUser.firstName} ${currentUser.lastName}` : 'Admin';
-    setRequests(prev => prev.map(r => {
-      if (r.id !== requestId) return r;
-      const notes = r.notes || [];
+  const enterDevPreview = import.meta.env.DEV
+    ? async (targetRole: 'ADMIN' | 'OPERATOR') => {
+        const previewToken =
+          targetRole === 'ADMIN' ? DEV_PREVIEW_ADMIN_TOKEN : DEV_PREVIEW_OPERATOR_TOKEN;
+        const previewUser = getDevPreviewUser(previewToken);
+        await postAuthSuccess(previewUser, previewToken);
+      }
+    : undefined;
+
+  const registerAccount = async (payload: RegisterPayload) => {
+    try {
+      const res = await api<any>('/register', {
+        method: 'POST',
+        body: payload,
+        skipAuthRedirect: true,
+      });
       return {
-        ...r,
-        notes: [...notes, { id: `note-${Date.now()}`, author, text, at: new Date().toISOString() }]
+        success: true,
+        user: res?.user ? mapUser(res.user) : undefined,
+        needsVerification: Boolean(res?.needs_verification ?? true),
       };
-    }));
-    addToast('Note interne ajoutée.');
+    } catch (err) {
+      if (err instanceof ApiError) {
+        return { success: false, message: err.message, errors: err.errors };
+      }
+      return { success: false, message: 'Erreur réseau lors de l\'inscription.' };
+    }
   };
 
-  const addOperator = (operatorData: Omit<User, 'id' | 'createdAt' | 'referralCode' | 'role' | 'verified' | 'twoFactor' | 'prefs'>) => {
-    const newOp: User = {
-      ...operatorData,
-      id: `u${users.length + 1}`,
-      role: 'OPERATOR',
-      verified: true,
-      twoFactor: false,
-      prefs: { received: true, quote: true, started: true, report: true, done: true, payment: true },
-      referralCode: `KW-${operatorData.firstName.toUpperCase().slice(0, 4)}${users.length + 1}`,
-      createdAt: new Date().toISOString()
-    };
-    setUsers(prev => [...prev, newOp]);
-    addToast(`Agent terrain ${newOp.firstName} ${newOp.lastName} ajouté.`);
+  const verifyEmail = async (email: string, code: string) => {
+    try {
+      const res = await api<any>('/email/verify', {
+        method: 'POST',
+        body: { email: email.trim(), code: code.trim() },
+        skipAuthRedirect: true,
+      });
+      if (res?.token && res?.user) {
+        await postAuthSuccess(res.user, res.token);
+        return { success: true };
+      }
+      return { success: false, message: 'Code invalide ou expiré.' };
+    } catch (err) {
+      if (err instanceof ApiError) {
+        return { success: false, message: err.message, errors: err.errors };
+      }
+      return { success: false, message: 'Erreur lors de la vérification.' };
+    }
   };
 
-  const markNotificationRead = (notifId: string) => {
-    setNotifications(prev => prev.map(n => n.id === notifId ? { ...n, read: true } : n));
+  const resendVerificationEmail = async (email: string) => {
+    try {
+      await api('/email/resend', {
+        method: 'POST',
+        body: { email: email.trim() },
+        skipAuthRedirect: true,
+      });
+      return { success: true, message: 'Un nouveau code vient d\'être envoyé par e-mail.' };
+    } catch (err) {
+      if (err instanceof ApiError) {
+        return { success: false, message: err.message };
+      }
+      return { success: false, message: 'Impossible de renvoyer le code.' };
+    }
   };
 
-  const toggleServiceAvailability = (serviceId: string) => {
-    setServices(prev => prev.map(s => s.id === serviceId ? { ...s, available: !s.available } : s));
-    addToast('Disponibilité du service modifiée.');
+  const logout = async (allDevices = false) => {
+    const prevRole = currentUser?.role;
+    const redirectView =
+      prevRole === 'ADMIN' ? 'admin-login' : prevRole === 'OPERATOR' ? 'operator-login' : 'public-home';
+    try {
+      if (getToken()) {
+        await api(allDevices ? '/logout-all' : '/logout', { method: 'POST', skipAuthRedirect: true });
+      }
+    } catch {
+      // Clear local session regardless
+    } finally {
+      setToken(null);
+      setCurrentUser(null);
+      setNotifications([]);
+      setCounters({ unreadMessages: 0, unreadNotifications: 0, dueInvoices: 0, pendingReviews: 0 });
+      addToast(allDevices ? 'Toutes vos sessions ont été déconnectées.' : 'Vous êtes à présent déconnecté.', 'info');
+      navigate(redirectView);
+    }
   };
 
-  const updateServicePrice = (serviceId: string, newPrice: string) => {
-    setServices(prev => prev.map(s => s.id === serviceId ? { ...s, price: newPrice } : s));
-    addToast('Tarif du service mis à jour.');
+  const markNotificationRead = async (notifId: string) => {
+    setNotifications(prev => prev.map(n => (n.id === notifId ? { ...n, read: true } : n)));
+    try {
+      await api(`/notifications/${notifId}/read`, { method: 'POST' });
+      refreshCounters();
+    } catch {
+      // Ignore
+    }
+  };
+
+  const markAllNotificationsRead = async () => {
+    setNotifications(prev => prev.map(n => ({ ...n, read: true })));
+    setCounters(prev => ({ ...prev, unreadNotifications: 0 }));
+    try {
+      await api('/notifications/read-all', { method: 'POST' });
+    } catch {
+      // Ignore
+    }
   };
 
   return (
-    <AppContext.Provider value={{
-      role,
-      currentUser,
-      users,
-      requests,
-      documents,
-      messages,
-      invoices,
-      reviews,
-      auditLogs,
-      notifications,
-      referrals,
-      services,
-      currentView,
-      activeRequestId,
-      activeServiceModal,
-      activePhotoModal,
-      toasts,
-      navigate,
-      openServiceModal,
-      closeServiceModal,
-      openPhotoModal,
-      closePhotoModal,
-      addToast,
-      removeToast,
-      markThreadRead,
-      login,
-      logout,
-      switchPersona,
-      resetDemoData,
-      createRequest,
-      updateRequestStatus,
-      assignOperator,
-      setQuote,
-      addDocument,
-      sendMessage,
-      payInvoice,
-      refundInvoice,
-      createInvoice,
-      addReview,
-      updateReviewStatus,
-      moderateReview,
-      toggleSuspendUser,
-      eraseUser,
-      updateUserProfile,
-      addNote,
-      addOperator,
-      markNotificationRead,
-      toggleServiceAvailability,
-      updateServicePrice,
-    }}>
+    <AppContext.Provider
+      value={{
+        role,
+        currentUser,
+        authLoading,
+        categories,
+        services,
+        notifications,
+        counters,
+        currentView,
+        activeRequestId,
+        activeClientId,
+        pendingServiceSlug,
+        resetPasswordParams,
+        activeServiceModal,
+        activePhotoModal,
+        toasts,
+        confirmState,
+        navigate,
+        navigateFromLink,
+        setActiveClientId,
+        setPendingServiceSlug,
+        openServiceModal,
+        closeServiceModal,
+        openPhotoModal,
+        closePhotoModal,
+        downloadDocument,
+        addToast,
+        removeToast,
+        confirm,
+        resolveConfirm,
+        login,
+        enterDevPreview,
+        registerAccount,
+        verifyEmail,
+        resendVerificationEmail,
+        logout,
+        refreshMe,
+        setCurrentUser,
+        refreshCatalog,
+        apiStatus,
+        checkApiHealth,
+        refreshCounters,
+        refreshNotifications,
+        markNotificationRead,
+        markAllNotificationsRead,
+      }}
+    >
       {children}
     </AppContext.Provider>
   );

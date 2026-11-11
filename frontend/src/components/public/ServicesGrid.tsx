@@ -1,6 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useApp } from '../../context/AppContext';
-import { CATEGORIES } from '../../data/kwaboData';
 import { Service } from '../../types';
 import { Check, ArrowRight, Star, Sparkles } from 'lucide-react';
 
@@ -52,7 +51,7 @@ const RevealCard: React.FC<{ delay: number; children: React.ReactNode }> = ({ de
 };
 
 export const ServicesGrid: React.FC<Props> = ({ selectedCategory, onSelectCategory }) => {
-  const { services, openServiceModal } = useApp();
+  const { services, categories, openServiceModal } = useApp();
   const [filterQuery, setFilterQuery] = useState('');
 
   const filteredServices = services.filter(s => {
@@ -107,7 +106,7 @@ export const ServicesGrid: React.FC<Props> = ({ selectedCategory, onSelectCatego
           >
             Tous les services ({services.length})
           </button>
-          {CATEGORIES.map(cat => (
+          {categories.map(cat => (
             <button
               key={cat.id}
               type="button"
@@ -126,7 +125,7 @@ export const ServicesGrid: React.FC<Props> = ({ selectedCategory, onSelectCatego
         {/* Grid */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
           {filteredServices.map((service, index) => {
-            const cat = CATEGORIES.find(c => c.id === service.cat);
+            const cat = categories.find(c => c.id === service.cat);
             return (
               <RevealCard key={service.id} delay={(index % 3) * 180}>
                 <div

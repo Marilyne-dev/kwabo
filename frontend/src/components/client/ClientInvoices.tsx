@@ -1,9 +1,12 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { motion, useReducedMotion, type Variants } from 'motion/react';
 import { useApp } from '../../context/AppContext';
-import { InvoiceItem } from '../../types';
+import { InvoiceItem, PaymentMethodItem } from '../../types';
 import { Icon } from '../common/Icon';
-import { PAYMENT_METHODS } from '../../data/kwaboData';
+import { InvoiceReceiptDrawer } from '../common/InvoiceReceiptDrawer';
+import { api, ApiError } from '../../services/api';
+import { mapInvoice } from '../../services/mappers';
+import { printInvoicePdf } from '../../utils/printPdf';
 
 // Apparition en cascade : chaque bloc monte légèrement en fondu, l'un après l'autre.
 const container: Variants = { hidden: {}, show: { transition: { staggerChildren: 0.1 } } };
@@ -14,27 +17,67 @@ const item: Variants = {
 };
 
 export const ClientInvoices: React.FC = () => {
-  const { currentUser, invoices, users, payInvoice, addToast } = useApp();
+  const { currentUser, refreshCounters, addToast, confirm } = useApp();
   const reduceMotion = useReducedMotion();
+
+  const [invoices, setInvoices] = useState<InvoiceItem[]>([]);
+  const [metaTotals, setMetaTotals] = useState<{ dueTotal: number; paidTotal: number; count: number } | null>(null);
+  const [methods, setMethods] = useState<PaymentMethodItem[]>([]);
+  const [loading, setLoading] = useState(true);
 
   /* ── local state ── */
   const [selectedInvoice, setSelectedInvoice] = useState<InvoiceItem | null>(null);
   const [payStep, setPayStep] = useState<'choose' | 'provider'>('choose');
   const [payMethod, setPayMethod] = useState<'card' | 'momo' | 'wise'>('card');
+  const [paying, setPaying] = useState(false);
   const [drawerInvoice, setDrawerInvoice] = useState<InvoiceItem | null>(null);
   const drawerOpen = drawerInvoice !== null;
   const drawerCloseRef = useRef<HTMLButtonElement>(null);
 
-  const [methods, setMethods] = useState<Array<{ type: string; label: string; icon: string }>>([
-    { type: 'card', label: 'Visa se terminant par 4242', icon: 'credit-card' },
-  ]);
+  const loadData = useCallback(async () => {
+    try {
+      const [invRes, methRes] = await Promise.all([
+        api<any>('/invoices'),
+        api<any>('/payment-methods').catch(() => ({ data: [] })),
+      ]);
+
+      const rawInvs = Array.isArray(invRes?.data) ? invRes.data : Array.isArray(invRes) ? invRes : [];
+      setInvoices(rawInvs.map(mapInvoice));
+      if (invRes?.meta) {
+        setMetaTotals({
+          dueTotal: Number(invRes.meta.due_total ?? 0),
+          paidTotal: Number(invRes.meta.paid_total ?? 0),
+          count: Number(invRes.meta.count ?? rawInvs.length),
+        });
+      }
+
+      const rawMeths = Array.isArray(methRes?.data) ? methRes.data : Array.isArray(methRes) ? methRes : [];
+      setMethods(
+        rawMeths.map((m: any) => ({
+          id: String(m.id),
+          type: m.type || m.method || 'card',
+          label: m.label || m.name || 'Moyen de paiement',
+          icon: m.icon || (m.type === 'momo' ? 'device-phone-mobile' : m.type === 'wise' ? 'building-library' : 'credit-card'),
+        }))
+      );
+    } catch {
+      setInvoices([]);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    setLoading(true);
+    loadData();
+  }, [loadData]);
 
   /* ── derived ── */
-  const userInvoices = invoices.filter(i => i.userId === currentUser?.id);
-  const due  = userInvoices.filter(i => i.status === 'due');
-  const paid = userInvoices.filter(i => i.status === 'paid');
-  const totalDue  = due.reduce((sum, i) => sum + i.amount, 0);
-  const totalPaid = paid.reduce((sum, i) => sum + i.amount, 0);
+  const due = invoices.filter(i => i.status === 'due');
+  const paid = invoices.filter(i => i.status === 'paid');
+  const totalDue = metaTotals ? metaTotals.dueTotal : due.reduce((sum, i) => sum + i.amount, 0);
+  const totalPaid = metaTotals ? metaTotals.paidTotal : paid.reduce((sum, i) => sum + i.amount, 0);
+  const invoiceCount = metaTotals ? metaTotals.count : invoices.length;
 
   /* ── helpers ── */
   const money = (n: number) =>
@@ -61,65 +104,84 @@ export const ClientInvoices: React.FC = () => {
     e.preventDefault();
     setPayStep('provider');
   };
-  const handleSimulateSuccess = () => {
-    if (selectedInvoice) {
-      payInvoice(selectedInvoice.id, payMethod);
+
+  const handleSimulateSuccess = async () => {
+    if (!selectedInvoice || paying) return;
+    setPaying(true);
+    try {
+      await api(`/invoices/${selectedInvoice.id}/pay`, {
+        method: 'POST',
+        body: { method: payMethod },
+      });
       setSelectedInvoice(null);
-      addToast('Paiement confirmé. Merci !');
+      addToast('Paiement confirmé. Merci !', 'success');
+      await Promise.all([loadData(), refreshCounters()]);
+    } catch (err) {
+      addToast(err instanceof ApiError ? err.message : 'Erreur lors du paiement.', 'error');
+    } finally {
+      setPaying(false);
     }
   };
-  const handleSimulateFail = () => {
-    addToast('Le paiement a échoué. Aucun montant n\'a été prélevé, vous pouvez réessayer.', 'error');
-    setSelectedInvoice(null);
+
+  const handleSimulateFail = async () => {
+    if (!selectedInvoice || paying) return;
+    setPaying(true);
+    try {
+      await api(`/invoices/${selectedInvoice.id}/pay`, {
+        method: 'POST',
+        body: { method: payMethod, simulate: 'fail' },
+      });
+      setSelectedInvoice(null);
+    } catch (err) {
+      addToast(
+        err instanceof ApiError
+          ? err.message
+          : "Le paiement a échoué. Aucun montant n'a été prélevé, vous pouvez réessayer.",
+        'error'
+      );
+      setSelectedInvoice(null);
+    } finally {
+      setPaying(false);
+    }
   };
-  const handleRemoveMethod = (idx: number) => {
-    setMethods(prev => prev.filter((_, i) => i !== idx));
-    addToast('Moyen de paiement retiré.');
+
+  const handleRemoveMethod = async (id: string, label?: string) => {
+    const ok = await confirm({
+      title: 'Retirer ce moyen de paiement ?',
+      message: label ? `« ${label} » sera supprimé de vos moyens enregistrés.` : 'Ce moyen de paiement sera supprimé de votre compte.',
+      confirmLabel: 'Retirer',
+      cancelLabel: 'Annuler',
+      variant: 'danger',
+    });
+    if (!ok) return;
+    try {
+      await api(`/payment-methods/${id}`, { method: 'DELETE' });
+      setMethods(prev => prev.filter(m => m.id !== id));
+      addToast('Moyen de paiement retiré.', 'info');
+    } catch (err) {
+      addToast(err instanceof ApiError ? err.message : 'Impossible de retirer ce moyen de paiement.', 'error');
+    }
   };
 
   /* ── print ── */
   const handlePrint = (inv: InvoiceItem) => {
-    const client = users.find(u => u.id === inv.userId);
-    const clientName = client ? `${client.firstName} ${client.lastName}` : 'Client';
-    const method = inv.method ? PAYMENT_METHODS[inv.method]?.label ?? '' : '–';
-    const statusLabel = inv.status === 'paid' ? 'Payée' : inv.status === 'due' ? 'À payer' : inv.status === 'refunded' ? 'Remboursée' : 'Annulée';
-    const html = `<!DOCTYPE html>
-<html lang="fr"><head><meta charset="UTF-8"/><title>Facture ${inv.id}</title>
-<style>
-*{box-sizing:border-box;margin:0;padding:0}body{font-family:system-ui,sans-serif;color:#1a2e1d;padding:40px;font-size:15px}
-.logo-wrap{display:flex;align-items:center;gap:10px;margin-bottom:32px}
-.logo-mark{width:42px;height:42px;border-radius:11px;background:#1a5c2e;color:#f0c040;font:700 24px/42px sans-serif;text-align:center}
-.logo-name{font:700 22px/1 sans-serif;color:#1a5c2e;letter-spacing:.02em}.logo-dot{color:#f0c040}
-h1{font-size:26px;margin-bottom:6px}
-.badge{display:inline-block;border:1.5px solid #1a5c2e;border-radius:100px;padding:3px 12px;font-size:13px;font-weight:600;color:#1a5c2e;margin-bottom:24px}
-.dl{display:grid;grid-template-columns:1fr 1fr;gap:20px 32px;margin-bottom:24px}
-.dl dt{font-size:11px;color:#6b7280;text-transform:uppercase;letter-spacing:.06em;margin-bottom:3px}
-.dl dd{font-weight:600;font-size:15px}
-hr{border:0;border-top:2px solid #1a5c2e;margin:20px 0}
-.total-row{display:flex;justify-content:space-between;align-items:baseline}
-.total-row span{font-size:15px}.total-row strong{font-size:28px;font-weight:700;color:#1a5c2e}
-@media print{body{padding:20px}}
-</style></head><body>
-<div class="logo-wrap"><div class="logo-mark">K</div><div class="logo-name">KWABO<span class="logo-dot">.</span></div></div>
-<h1>Facture ${inv.id}</h1><span class="badge">✓ ${statusLabel}</span>
-<div class="dl">
-<div><dt>Client</dt><dd>${clientName}</dd></div>
-<div><dt>Date</dt><dd>${fmtDate(inv.createdAt)}</dd></div>
-${inv.paidAt ? `<div><dt>Payée le</dt><dd>${fmtDate(inv.paidAt)}</dd></div><div><dt>Moyen</dt><dd>${method}</dd></div>` : ''}
-<div><dt>Objet</dt><dd>${inv.label}</dd></div>
-</div><hr/>
-<div class="total-row"><span>Total</span><strong>${money(inv.amount)}</strong></div>
-<script>window.onload=()=>{window.print();}<\/script>
-</body></html>`;
-    const win = window.open('', '_blank', 'width=700,height=800');
-    if (win) { win.document.write(html); win.document.close(); }
+    const clientName = currentUser?.fullName || (currentUser ? `${currentUser.firstName} ${currentUser.lastName}` : 'Client');
+    const opened = printInvoicePdf({
+      invoice: inv,
+      clientName,
+      clientEmail: currentUser?.email,
+      clientCountry: currentUser?.country,
+    });
+    if (!opened) {
+      addToast('Autorisez les fenêtres pop-up pour afficher ou enregistrer le PDF.', 'warning');
+    }
   };
 
   /* ── badge helper ── */
   const invoiceBadge = (inv: InvoiceItem) => {
-    if (inv.status === 'paid')      return <span className="badge badge-green"><Icon name="check-circle" size={14} /> Payée</span>;
-    if (inv.status === 'due')       return <span className="badge badge-gold"><Icon name="clock" size={14} /> À payer</span>;
-    if (inv.status === 'refunded')  return <span className="badge badge-red"><Icon name="arrow-left" size={14} /> Remboursée</span>;
+    if (inv.status === 'paid') return <span className="badge badge-green"><Icon name="check-circle" size={14} /> Payée</span>;
+    if (inv.status === 'due') return <span className="badge badge-gold"><Icon name="clock" size={14} /> À payer</span>;
+    if (inv.status === 'refunded') return <span className="badge badge-red"><Icon name="arrow-left" size={14} /> Remboursée</span>;
     return <span className="badge badge-neutral"><Icon name="x-circle" size={14} /> Annulée</span>;
   };
 
@@ -136,108 +198,20 @@ ${inv.paidAt ? `<div><dt>Payée le</dt><dd>${fmtDate(inv.paidAt)}</dd></div><div
       initial={reduceMotion ? false : 'hidden'}
       animate="show"
     >
-      {/* ── Drawer overlay ── */}
-      <div
-        className={`drawer-overlay${drawerOpen ? ' open' : ''}`}
-        aria-hidden="true"
-        onClick={() => setDrawerInvoice(null)}
+      {/* ── Receipt / Invoice Drawer ── */}
+      <InvoiceReceiptDrawer
+        invoice={drawerInvoice}
+        clientName={currentUser?.fullName || (currentUser ? `${currentUser.firstName} ${currentUser.lastName}` : 'Client')}
+        clientEmail={currentUser?.email}
+        clientCountry={currentUser?.country}
+        closeButtonRef={drawerCloseRef}
+        onClose={() => setDrawerInvoice(null)}
+        onPrint={handlePrint}
+        onPay={(inv) => {
+          setDrawerInvoice(null);
+          handleOpenPay(inv);
+        }}
       />
-
-      {/* ── Drawer panel ── */}
-      <aside
-        className={`drawer${drawerOpen ? ' open' : ''}`}
-        role="dialog"
-        aria-modal="true"
-        aria-label={drawerInvoice ? `Facture ${drawerInvoice.id}` : 'Détail facture'}
-      >
-        {drawerInvoice && (() => {
-          const inv = drawerInvoice;
-          const client = users.find(u => u.id === inv.userId);
-          const clientName = client ? `${client.firstName} ${client.lastName}` : 'Client';
-          const method = inv.method ? PAYMENT_METHODS[inv.method]?.label ?? '–' : '–';
-          const statusLabel = inv.status === 'paid' ? 'Payée' : inv.status === 'due' ? 'À payer' : inv.status === 'refunded' ? 'Remboursée' : 'Annulée';
-          const statusColor = inv.status === 'paid' ? 'green' : inv.status === 'due' ? 'gold' : 'neutral';
-          return (
-            <>
-              <div className="drawer-header">
-                <div>
-                  {/* Logo KWABO */}
-                  <div className="logo" style={{ marginBottom: 10 }}>
-                    <span className="logo-mark">K</span>
-                    <span className="logo-text">KWABO<span className="logo-dot">.</span></span>
-                  </div>
-                  <div className="drawer-title">Facture {inv.id}</div>
-                  <span className={`badge badge-${statusColor}`} style={{ marginTop: 6 }}>
-                    {inv.status === 'paid' && <Icon name="check-circle" size={13} />}
-                    {statusLabel}
-                  </span>
-                </div>
-                <button
-                  ref={drawerCloseRef}
-                  className="drawer-close"
-                  type="button"
-                  aria-label="Fermer"
-                  onClick={() => setDrawerInvoice(null)}
-                >
-                  <Icon name="x-mark" size={20} />
-                </button>
-              </div>
-
-              <div className="drawer-body">
-                <dl className="invoice-dl">
-                  <div>
-                    <dt>Client</dt>
-                    <dd>{clientName}</dd>
-                  </div>
-                  <div>
-                    <dt>Date</dt>
-                    <dd>{fmtDate(inv.createdAt)}</dd>
-                  </div>
-                  {inv.paidAt && (
-                    <>
-                      <div>
-                        <dt>Payée le</dt>
-                        <dd>{fmtDate(inv.paidAt)}</dd>
-                      </div>
-                      <div>
-                        <dt>Moyen</dt>
-                        <dd>{method}</dd>
-                      </div>
-                    </>
-                  )}
-                  <div style={{ gridColumn: '1 / -1' }}>
-                    <dt>Objet</dt>
-                    <dd>{inv.label}</dd>
-                  </div>
-                </dl>
-
-                <div className="invoice-total">
-                  <span>Total</span>
-                  <strong>{money(inv.amount)}</strong>
-                </div>
-              </div>
-
-              <div className="drawer-actions">
-                <button
-                  className="btn btn-ghost btn-sm"
-                  type="button"
-                  onClick={() => handlePrint(inv)}
-                >
-                  <Icon name="printer" size={16} />
-                  Imprimer ou PDF
-                </button>
-                <button
-                  className="btn btn-primary btn-sm"
-                  type="button"
-                  onClick={() => setDrawerInvoice(null)}
-                >
-                  Fermer
-                </button>
-              </div>
-            </>
-          );
-        })()}
-      </aside>
 
       {/* ── 3 Stats Cards ── */}
       <motion.ul className="stats stats-3" variants={cascade}>
@@ -253,7 +227,7 @@ ${inv.paidAt ? `<div><dt>Payée le</dt><dd>${fmtDate(inv.paidAt)}</dd></div><div
         </motion.li>
         <motion.li className="stat stat-neutral" variants={item} whileHover={{ y: -3, transition: { duration: 0.2 } }}>
           <span className="tile tile-sm"><Icon name="receipt-percent" size={18} /></span>
-          <strong>{userInvoices.length}</strong>
+          <strong>{invoiceCount}</strong>
           <span>Factures</span>
         </motion.li>
       </motion.ul>
@@ -265,7 +239,7 @@ ${inv.paidAt ? `<div><dt>Payée le</dt><dd>${fmtDate(inv.paidAt)}</dd></div><div
           <p>
             <strong>{i.label} : {money(i.amount)}</strong>
             <br />
-            <small>Facture {i.id} du {fmtDate(i.createdAt)}</small>
+            <small>Facture {i.number || i.id} du {fmtDate(i.createdAt)}</small>
           </p>
           <motion.button
             className="btn btn-gold btn-sm"
@@ -283,7 +257,9 @@ ${inv.paidAt ? `<div><dt>Payée le</dt><dd>${fmtDate(inv.paidAt)}</dd></div><div
         {/* ── Historique ── */}
         <motion.section className="card" variants={item}>
           <h2>Historique</h2>
-          {userInvoices.length ? (
+          {loading ? (
+            <p className="muted">Chargement des factures…</p>
+          ) : invoices.length ? (
             <div className="table-wrap">
               <table className="table table-cards">
                 <thead>
@@ -297,9 +273,9 @@ ${inv.paidAt ? `<div><dt>Payée le</dt><dd>${fmtDate(inv.paidAt)}</dd></div><div
                   </tr>
                 </thead>
                 <motion.tbody variants={cascade}>
-                  {userInvoices.map(i => (
+                  {invoices.map(i => (
                     <motion.tr key={i.id} variants={item}>
-                      <td data-label="Facture"><strong>{i.id}</strong></td>
+                      <td data-label="Facture"><strong>{i.number || i.id}</strong></td>
                       <td data-label="Objet">{i.label}</td>
                       <td data-label="Date" className="nowrap">{fmtDate(i.paidAt || i.createdAt)}</td>
                       <td data-label="Montant"><strong>{money(i.amount)}</strong></td>
@@ -331,15 +307,15 @@ ${inv.paidAt ? `<div><dt>Payée le</dt><dd>${fmtDate(inv.paidAt)}</dd></div><div
             <h2>Moyens enregistrés</h2>
             {methods.length ? (
               <ul className="method-list">
-                {methods.map((m, index) => (
-                  <li key={index}>
+                {methods.map((m) => (
+                  <li key={m.id}>
                     <Icon name={m.icon as any} size={20} />
                     <span>{m.label}</span>
                     <button
                       className="icon-btn"
                       type="button"
                       aria-label={`Retirer ${m.label}`}
-                      onClick={() => handleRemoveMethod(index)}
+                      onClick={() => handleRemoveMethod(m.id, m.label)}
                     >
                       <Icon name="x-mark" size={18} />
                     </button>
@@ -409,16 +385,16 @@ ${inv.paidAt ? `<div><dt>Payée le</dt><dd>${fmtDate(inv.paidAt)}</dd></div><div
                   </div>
                   <p><strong>{paymentProviders[payMethod].label} : {money(selectedInvoice.amount)}</strong></p>
                   <p className="muted">
-                    Démonstration : aucun paiement réel. Ici, le client serait sur la page sécurisée du prestataire.
+                    Mode test sécurisé : confirmez le paiement ou simulez un échec bancaire.
                   </p>
                 </div>
 
                 <div className="dialog-actions">
-                  <button className="btn btn-ghost" type="button" onClick={handleSimulateFail}>
+                  <button className="btn btn-ghost" type="button" disabled={paying} onClick={handleSimulateFail}>
                     Simuler un échec
                   </button>
-                  <button className="btn btn-primary" type="button" onClick={handleSimulateSuccess}>
-                    Simuler le paiement
+                  <button className="btn btn-primary" type="button" disabled={paying} onClick={handleSimulateSuccess}>
+                    {paying ? 'Traitement…' : 'Confirmer le paiement'}
                   </button>
                 </div>
               </div>

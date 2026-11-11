@@ -13,7 +13,7 @@ import '../../mockup-client/maquette-kwabo/css/style.css';
  *   - title: page title displayed in the <title> tag by the router (optional).
  *   - children: the page‑specific content.
  */
-export const ClientLayout: React.FC<{ title?: string }> = ({ title, children }) => {
+export const ClientLayout: React.FC<{ title?: string; children?: React.ReactNode }> = ({ title, children }) => {
   // Navigation items correspond exactly to the array defined in client.js
   const nav = [
     { href: '#/espace', icon: 'home', label: 'Tableau de bord' },

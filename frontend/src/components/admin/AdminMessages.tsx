@@ -1,78 +1,154 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useApp } from '../../context/AppContext';
 import { Icon } from '../common/Icon';
 import { STATUS_MAP } from '../../data/kwaboData';
+import { api, ApiError, getFirstValidationError } from '../../services/api';
+import { mapMessage, mapRequest } from '../../services/mappers';
+import { MessageItem, RequestItem } from '../../types';
+
+interface AdminThread {
+  requestId: string;
+  r: RequestItem;
+  lastText: string;
+  unread: number;
+}
+
+function mapAdminThread(raw: any): AdminThread {
+  const reqObj = raw?.request ? mapRequest(raw.request) : mapRequest(raw);
+  const reqId = String(raw?.request_id ?? reqObj.id);
+  const lastRaw = raw?.last_message;
+  let lastText = 'Aucun message';
+  if (typeof lastRaw === 'string') {
+    lastText = lastRaw;
+  } else if (lastRaw && typeof lastRaw === 'object') {
+    lastText = lastRaw.text || lastRaw.attachment?.name || 'Pièce jointe';
+  }
+  return {
+    requestId: reqId,
+    r: reqObj.id ? reqObj : { ...reqObj, id: reqId },
+    lastText,
+    unread: Number(raw?.unread ?? 0),
+  };
+}
 
 export const AdminMessages: React.FC = () => {
-  const { 
-    currentUser, role, requests, users, messages, activeRequestId,
-    sendMessage, markThreadRead, navigate 
-  } = useApp();
-
+  const { role, activeRequestId, navigate, downloadDocument, refreshCounters, addToast } = useApp();
   const isOperator = role === 'OPERATOR';
-  const visibleRequests = isOperator
-    ? requests.filter(r => r.operatorId === currentUser?.id)
-    : requests;
 
-  // Build threads
-  const threads = visibleRequests.map(r => {
-    const threadMsgs = messages.filter(m => m.requestId === r.id);
-    const lastMsg = threadMsgs[threadMsgs.length - 1];
-    const unreadCount = threadMsgs.filter(m => m.from === 'client' && !m.read).length;
-    return { r, last: lastMsg, unread: unreadCount };
-  })
-  .filter(t => t.last || t.r.id === activeRequestId)
-  .sort((a, b) => (b.unread - a.unread) || (new Date(b.last?.at || 0).getTime() - new Date(a.last?.at || 0).getTime()));
-
-  const [selectedId, setSelectedId] = useState<string>(() => {
-    if (activeRequestId && visibleRequests.some(r => r.id === activeRequestId)) {
-      return activeRequestId;
-    }
-    return threads[0]?.r.id || '';
-  });
-
+  const [threads, setThreads] = useState<AdminThread[]>([]);
+  const [loadingThreads, setLoadingThreads] = useState(true);
+  const [selectedId, setSelectedId] = useState<string>('');
+  const [currentMessages, setCurrentMessages] = useState<MessageItem[]>([]);
+  const [loadingMsgs, setLoadingMsgs] = useState(false);
   const [inputText, setInputText] = useState('');
   const [attachment, setAttachment] = useState<File | null>(null);
+  const [sending, setSending] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  // Sync selectedId with activeRequestId if it changes externally
-  useEffect(() => {
-    if (activeRequestId && visibleRequests.some(r => r.id === activeRequestId)) {
-      setSelectedId(activeRequestId);
+  const loadThreads = useCallback(async () => {
+    try {
+      const res = await api<any>('/messages');
+      const raw = Array.isArray(res?.data) ? res.data : Array.isArray(res) ? res : [];
+      const mapped: AdminThread[] = raw.map(mapAdminThread);
+      setThreads(mapped);
+      setSelectedId((prev) => {
+        if (activeRequestId && mapped.some(t => t.requestId === activeRequestId)) {
+          return activeRequestId;
+        }
+        if (prev && mapped.some(t => t.requestId === prev)) {
+          return prev;
+        }
+        return mapped[0]?.requestId || '';
+      });
+    } catch {
+      setThreads([]);
+    } finally {
+      setLoadingThreads(false);
     }
-  }, [activeRequestId, visibleRequests]);
+  }, [activeRequestId]);
 
-  // Mark thread as read for team when selected
+  useEffect(() => {
+    setLoadingThreads(true);
+    loadThreads();
+  }, [loadThreads]);
+
+  const loadMessages = useCallback(async (reqId: string) => {
+    if (!reqId) {
+      setCurrentMessages([]);
+      return;
+    }
+    setLoadingMsgs(true);
+    try {
+      const res = await api<any>(`/requests/${reqId}/messages`);
+      const raw = Array.isArray(res?.data) ? res.data : Array.isArray(res) ? res : [];
+      setCurrentMessages(raw.map((m: any) => mapMessage(m, reqId)));
+
+      await api(`/requests/${reqId}/messages/read`, { method: 'POST' }).catch(() => {});
+      setThreads(prev => prev.map(t => (t.requestId === reqId ? { ...t, unread: 0 } : t)));
+      await refreshCounters();
+    } catch {
+      setCurrentMessages([]);
+    } finally {
+      setLoadingMsgs(false);
+    }
+  }, [refreshCounters]);
+
   useEffect(() => {
     if (selectedId) {
-      markThreadRead(selectedId, 'team');
+      loadMessages(selectedId);
     }
-  }, [selectedId, messages]);
+  }, [selectedId, loadMessages]);
 
-  // Auto-scroll to bottom of thread
   useEffect(() => {
     if (messagesEndRef.current) {
       messagesEndRef.current.scrollTop = messagesEndRef.current.scrollHeight;
     }
-  }, [selectedId, messages]);
+  }, [selectedId, currentMessages]);
 
-  const selectedRequest = visibleRequests.find(r => r.id === selectedId);
-  const selectedClient = selectedRequest ? users.find(u => u.id === selectedRequest.userId) : null;
-  const currentMessages = selectedId ? messages.filter(m => m.requestId === selectedId) : [];
+  const selectedThread = threads.find(t => t.requestId === selectedId);
+  const selectedRequest = selectedThread?.r || null;
+  const selectedClient = selectedRequest?.client || null;
 
   const handleSelectThread = (reqId: string) => {
     setSelectedId(reqId);
-    markThreadRead(reqId, 'team');
   };
 
-  const handleSend = (e: React.FormEvent) => {
+  const handleSend = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!inputText.trim() && !attachment) return;
-    if (!selectedId) return;
+    if ((!inputText.trim() && !attachment) || !selectedId || sending) return;
 
-    sendMessage(selectedId, inputText, attachment ? attachment.name : undefined);
-    setInputText('');
-    setAttachment(null);
+    setSending(true);
+    try {
+      let body: any;
+      if (attachment) {
+        const fd = new FormData();
+        if (inputText.trim()) fd.append('text', inputText.trim());
+        fd.append('attachment', attachment);
+        body = fd;
+      } else {
+        body = { text: inputText.trim() };
+      }
+
+      await api(`/requests/${selectedId}/messages`, {
+        method: 'POST',
+        body,
+      });
+
+      const preview = inputText.trim() || attachment?.name || 'Message';
+      setInputText('');
+      setAttachment(null);
+      setThreads(prev =>
+        prev.map(t => (t.requestId === selectedId ? { ...t, lastText: preview } : t))
+      );
+      await loadMessages(selectedId);
+    } catch (err) {
+      addToast(
+        getFirstValidationError(err) || (err instanceof ApiError ? err.message : "Impossible d'envoyer le message."),
+        'error'
+      );
+    } finally {
+      setSending(false);
+    }
   };
 
   const formatDateTime = (iso: string) => {
@@ -80,7 +156,15 @@ export const AdminMessages: React.FC = () => {
     return `${d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })} à ${d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}`;
   };
 
-  if (!visibleRequests.length || !threads.length) {
+  if (loadingThreads) {
+    return (
+      <div className="empty-state">
+        <p className="muted">Chargement des discussions…</p>
+      </div>
+    );
+  }
+
+  if (!threads.length) {
     return (
       <div className="empty-state">
         <span className="tile tile-lg tile-muted">
@@ -88,8 +172,8 @@ export const AdminMessages: React.FC = () => {
         </span>
         <h3>Aucune discussion</h3>
         <p className="muted">
-          {isOperator 
-            ? 'Les messages des clients sur vos missions attribuées apparaîtront ici.' 
+          {isOperator
+            ? 'Les messages des clients sur vos missions attribuées apparaîtront ici.'
             : 'Les messages des clients apparaîtront ici.'}
         </p>
       </div>
@@ -100,25 +184,29 @@ export const AdminMessages: React.FC = () => {
     <div className={`messenger ${selectedRequest ? 'has-thread' : ''}`}>
       {/* Liste des discussions */}
       <nav className="messenger-list" aria-label="Discussions">
-        {threads.map(({ r, last, unread }) => {
-          const client = users.find(u => u.id === r.userId);
-          const clientName = client ? `${client.firstName} ${client.lastName}` : 'Client';
-          const initials = client ? `${client.firstName[0]}${client.lastName[0]}`.toUpperCase() : 'CL';
-          const isSelected = selectedId === r.id;
+        {threads.map(({ requestId, r, lastText, unread }) => {
+          const client = r.client;
+          const clientName = client
+            ? client.fullName || `${client.firstName} ${client.lastName}`.trim()
+            : 'Client';
+          const initials = client
+            ? `${client.firstName?.[0] || ''}${client.lastName?.[0] || ''}`.toUpperCase() || 'CL'
+            : 'CL';
+          const isSelected = selectedId === requestId;
 
           return (
             <button
-              key={r.id}
+              key={requestId}
               type="button"
               className={`w-full text-left border-0 bg-transparent cursor-pointer p-0 block ${isSelected ? 'active' : ''}`}
               aria-current={isSelected ? 'true' : undefined}
-              onClick={() => handleSelectThread(r.id)}
+              onClick={() => handleSelectThread(requestId)}
             >
               <span className="avatar avatar-sm">{initials}</span>
               <span className="messenger-item">
                 <strong>{clientName}</strong>
                 <small>{r.title}</small>
-                <small>{last ? (last.text || last.attachment) : 'Aucun message'}</small>
+                <small>{lastText}</small>
               </span>
               {unread > 0 && (
                 <span className="count count-gold">{unread}</span>
@@ -130,7 +218,7 @@ export const AdminMessages: React.FC = () => {
 
       {/* Fil de discussion */}
       <section className="messenger-thread">
-        {selectedRequest && selectedClient ? (
+        {selectedRequest ? (
           <>
             <header>
               <button
@@ -150,7 +238,10 @@ export const AdminMessages: React.FC = () => {
                   {selectedRequest.title}
                 </button>
                 <small className="muted block">
-                  {selectedRequest.tracking} · {selectedClient.firstName} {selectedClient.lastName}
+                  {selectedRequest.tracking}
+                  {selectedClient
+                    ? ` · ${selectedClient.fullName || `${selectedClient.firstName} ${selectedClient.lastName}`}`
+                    : ''}
                 </small>
               </div>
               <span className={`badge badge-${STATUS_MAP[selectedRequest.status].color}`}>
@@ -160,26 +251,33 @@ export const AdminMessages: React.FC = () => {
             </header>
 
             <div className="thread">
-              <div 
-                className="thread-messages" 
-                ref={messagesEndRef} 
-                role="log" 
+              <div
+                className="thread-messages"
+                ref={messagesEndRef}
+                role="log"
                 aria-label="Messages de la demande"
               >
-                {currentMessages.length === 0 ? (
+                {loadingMsgs ? (
+                  <p className="muted thread-empty">Chargement des messages…</p>
+                ) : currentMessages.length === 0 ? (
                   <p className="muted thread-empty">Aucun message pour le moment. Répondez au client ici.</p>
                 ) : (
                   currentMessages.map(m => {
                     const isMine = m.from === 'team';
+                    const attUrl = `/messages/${m.id}/attachment`;
                     return (
                       <div key={m.id} className={`bubble ${isMine ? 'bubble-mine' : ''}`}>
                         <span className="bubble-author">{m.author}</span>
                         {m.text && <p>{m.text}</p>}
                         {m.attachment && (
-                          <span className="bubble-file">
+                          <button
+                            type="button"
+                            className="bubble-file border-0 cursor-pointer"
+                            onClick={() => downloadDocument(attUrl, m.attachment!.name)}
+                          >
                             <Icon name="paper-clip" size={16} />
-                            {m.attachment}
-                          </span>
+                            <span>{m.attachment.name}</span>
+                          </button>
                         )}
                         <time dateTime={m.at}>{formatDateTime(m.at)}</time>
                       </div>
@@ -193,7 +291,16 @@ export const AdminMessages: React.FC = () => {
               ) : (
                 <form className="thread-form" onSubmit={handleSend}>
                   {attachment && (
-                    <p className="attachment-name">Pièce jointe : {attachment.name}</p>
+                    <p className="attachment-name flex items-center gap-2">
+                      <span>Pièce jointe : {attachment.name}</span>
+                      <button
+                        type="button"
+                        className="text-xs underline bg-transparent border-0 cursor-pointer"
+                        onClick={() => setAttachment(null)}
+                      >
+                        Retirer
+                      </button>
+                    </p>
                   )}
                   <div className="thread-form-row">
                     <label className="icon-btn attach" title="Joindre un fichier" style={{ cursor: 'pointer' }}>
@@ -201,6 +308,7 @@ export const AdminMessages: React.FC = () => {
                       <span className="sr-only">Joindre un fichier</span>
                       <input
                         type="file"
+                        accept=".pdf,.jpg,.jpeg,.png"
                         className="sr-only"
                         onChange={(e) => {
                           if (e.target.files && e.target.files[0]) {
@@ -222,7 +330,12 @@ export const AdminMessages: React.FC = () => {
                         }
                       }}
                     />
-                    <button className="btn btn-primary btn-icon" type="submit" aria-label="Envoyer">
+                    <button
+                      className="btn btn-primary btn-icon"
+                      type="submit"
+                      aria-label="Envoyer"
+                      disabled={sending}
+                    >
                       <Icon name="paper-airplane" size={18} />
                     </button>
                   </div>
@@ -243,4 +356,3 @@ export const AdminMessages: React.FC = () => {
     </div>
   );
 };
-

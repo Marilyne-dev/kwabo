@@ -1,18 +1,47 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { useApp } from '../../context/AppContext';
 import { Icon } from '../common/Icon';
-import { SERVICES } from '../../data/kwaboData';
+import { api } from '../../services/api';
+import { mapDocument, mapRequest } from '../../services/mappers';
+import { DocumentItem, RequestItem } from '../../types';
+
+interface DocGroup {
+  r: RequestItem;
+  docs: DocumentItem[];
+}
 
 export const ClientDocuments: React.FC = () => {
-  const { currentUser, documents, requests, openPhotoModal, navigate } = useApp();
+  const { openPhotoModal, downloadDocument, navigate } = useApp();
+  const [groups, setGroups] = useState<DocGroup[]>([]);
+  const [loading, setLoading] = useState(true);
 
-  const userRequests = requests.filter(r => r.userId === currentUser?.id);
-  const groups = userRequests
-    .map(r => ({
-      r,
-      docs: documents.filter(d => d.requestId === r.id)
-    }))
-    .filter(g => g.docs.length > 0);
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    api<any>('/documents')
+      .then((res) => {
+        if (cancelled) return;
+        const raw = Array.isArray(res?.data) ? res.data : Array.isArray(res) ? res : [];
+        const parsed: DocGroup[] = raw
+          .map((item: any) => {
+            const req = mapRequest(item.request || item);
+            const docs = Array.isArray(item.documents) ? item.documents.map((d: any) => mapDocument(d, req.id)) : [];
+            return { r: req, docs };
+          })
+          .filter((g: DocGroup) => g.docs.length > 0);
+        setGroups(parsed);
+      })
+      .catch(() => {
+        if (!cancelled) setGroups([]);
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const docIconMap: Record<string, string> = {
     report: 'document-text',
@@ -29,6 +58,14 @@ export const ClientDocuments: React.FC = () => {
     receipt: 'Reçu / Facture',
     contract: 'Contrat / Acte',
   };
+
+  if (loading) {
+    return (
+      <div className="empty-state">
+        <p className="muted">Chargement de vos documents…</p>
+      </div>
+    );
+  }
 
   if (groups.length === 0) {
     return (
@@ -51,61 +88,58 @@ export const ClientDocuments: React.FC = () => {
 
   return (
     <div className="stack">
-      {groups.map(({ r, docs }) => {
-        const s = SERVICES.find(serv => serv.id === r.serviceId);
-        return (
-          <section key={r.id} className="card">
-            <div className="card-head">
-              <div>
-                <h2>{r.title}</h2>
-                <small className="muted">{r.tracking} · {docs.length} document{docs.length > 1 ? 's' : ''}</small>
-              </div>
-              <button 
-                type="button" 
-                className="btn btn-ghost btn-sm"
-                onClick={() => navigate('client-request-detail', r.id)}
-              >
-                Voir la demande
-              </button>
+      {groups.map(({ r, docs }) => (
+        <section key={r.id} className="card">
+          <div className="card-head">
+            <div>
+              <h2>{r.title}</h2>
+              <small className="muted">{r.tracking} · {docs.length} document{docs.length > 1 ? 's' : ''}</small>
             </div>
+            <button
+              type="button"
+              className="btn btn-ghost btn-sm"
+              onClick={() => navigate('client-request-detail', r.id)}
+            >
+              Voir la demande
+            </button>
+          </div>
 
-            <ul className="doc-list doc-list-grid">
-              {docs.map(d => {
-                const photoUrl = d.url || (d.photoName ? `/assets/photos/${d.photoName}.jpg` : s?.photo || '/assets/photos/chantier-gros-oeuvre.jpg');
-                return (
-                  <li key={d.id} className="doc-item">
-                    <span className="tile tile-sm">
-                      <Icon name={docIconMap[d.type] || 'document-text'} size={18} />
-                    </span>
-                    <span className="doc-item-main">
-                      <strong>{d.name}</strong>
-                      <small>{docTypeLabel[d.type] || d.type} · {new Date(d.createdAt).toLocaleDateString('fr-FR')}</small>
-                    </span>
-                    <button
-                      className="icon-btn"
-                      type="button"
-                      aria-label="Voir le document"
-                      title="Voir"
-                      onClick={() => openPhotoModal(photoUrl, d.name)}
-                    >
-                      <Icon name="eye" size={18} />
-                    </button>
-                    <button
-                      className="icon-btn"
-                      type="button"
-                      aria-label="Télécharger le document"
-                      title="Télécharger"
-                      onClick={() => alert(`Téléchargement de « ${d.name} » démarré.`)}
-                    >
-                      <Icon name="arrow-down-tray" size={18} />
-                    </button>
-                  </li>
-                );
-              })}
-            </ul>
-          </section>
-        );
-      })}
+          <ul className="doc-list doc-list-grid">
+            {docs.map(d => {
+              const downloadPath = `/documents/${d.id}/download`;
+              return (
+                <li key={d.id} className="doc-item">
+                  <span className="tile tile-sm">
+                    <Icon name={docIconMap[d.type] || 'document-text'} size={18} />
+                  </span>
+                  <span className="doc-item-main">
+                    <strong>{d.name}</strong>
+                    <small>{docTypeLabel[d.type] || d.type} · {new Date(d.createdAt).toLocaleDateString('fr-FR')}</small>
+                  </span>
+                  <button
+                    className="icon-btn"
+                    type="button"
+                    aria-label="Voir le document"
+                    title="Voir"
+                    onClick={() => openPhotoModal(downloadPath, d.name, downloadPath, true)}
+                  >
+                    <Icon name="eye" size={18} />
+                  </button>
+                  <button
+                    className="icon-btn"
+                    type="button"
+                    aria-label="Télécharger le document"
+                    title="Télécharger"
+                    onClick={() => downloadDocument(downloadPath, d.name)}
+                  >
+                    <Icon name="arrow-down-tray" size={18} />
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        </section>
+      ))}
     </div>
   );
 };

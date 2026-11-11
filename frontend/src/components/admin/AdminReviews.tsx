@@ -1,30 +1,62 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useApp } from '../../context/AppContext';
 import { Icon } from '../common/Icon';
+import { api, ApiError } from '../../services/api';
+import { mapReview } from '../../services/mappers';
+import { ReviewItem } from '../../types';
 
 export const AdminReviews: React.FC = () => {
-  const { reviews, users, requests, moderateReview, addToast, navigate } = useApp();
+  const { addToast, navigate, refreshCounters } = useApp();
   const [activeTab, setActiveTab] = useState<'pending' | 'published' | 'hidden'>('pending');
+  const [reviews, setReviews] = useState<ReviewItem[]>([]);
+  const [tabCounts, setTabCounts] = useState({ pending: 0, published: 0, hidden: 0 });
+  const [loading, setLoading] = useState(true);
 
-  const ratings = reviews.map(r => r.rating);
-  const avg = ratings.length ? (ratings.reduce((a, b) => a + b, 0) / ratings.length).toFixed(1).replace('.', ',') : '–';
+  const loadReviews = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await api<any>('/admin/reviews', {
+        params: { status: activeTab },
+      });
+      const raw = Array.isArray(res?.data) ? res.data : Array.isArray(res) ? res : [];
+      setReviews(raw.map(mapReview));
+      if (res?.meta?.counts) {
+        setTabCounts({
+          pending: Number(res.meta.counts.pending ?? 0),
+          published: Number(res.meta.counts.published ?? 0),
+          hidden: Number(res.meta.counts.hidden ?? 0),
+        });
+      }
+    } catch {
+      setReviews([]);
+    } finally {
+      setLoading(false);
+    }
+  }, [activeTab]);
 
-  const tabCounts = {
-    pending: reviews.filter(r => r.status === 'pending').length,
-    published: reviews.filter(r => r.status === 'published').length,
-    hidden: reviews.filter(r => r.status === 'hidden').length,
-  };
-
-  const currentList = reviews.filter(r => r.status === activeTab);
+  useEffect(() => {
+    loadReviews();
+  }, [loadReviews]);
 
   const formatDate = (iso: string) => {
     const d = new Date(iso);
     return d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', year: 'numeric' });
   };
 
-  const handleModerate = (id: string, status: 'published' | 'hidden') => {
-    moderateReview(id, status);
-    addToast(status === 'published' ? 'Avis publié sur la vitrine publique.' : 'Avis masqué.');
+  const handleModerate = async (id: string, status: 'published' | 'hidden') => {
+    try {
+      await api(`/admin/reviews/${id}`, {
+        method: 'PATCH',
+        body: { status },
+      });
+      addToast(
+        status === 'published' ? 'Avis publié sur la vitrine publique.' : 'Avis masqué.',
+        'success'
+      );
+      await Promise.all([loadReviews(), refreshCounters()]);
+    } catch (err) {
+      addToast(err instanceof ApiError ? err.message : 'Erreur lors de la modération.', 'error');
+    }
   };
 
   return (
@@ -45,7 +77,11 @@ export const AdminReviews: React.FC = () => {
       </div>
 
       <div id="reviews-list">
-        {currentList.length === 0 ? (
+        {loading ? (
+          <div className="empty-state">
+            <p className="muted">Chargement des avis…</p>
+          </div>
+        ) : reviews.length === 0 ? (
           <div className="empty-state">
             <span className="tile tile-lg">
               <Icon name="star" size={32} />
@@ -57,10 +93,10 @@ export const AdminReviews: React.FC = () => {
           </div>
         ) : (
           <ul className="review-list">
-            {currentList.map(a => {
-              const client = users.find(u => u.id === a.userId);
-              const r = requests.find(req => req.id === a.requestId);
-
+            {reviews.map(a => {
+              const clientName = a.client
+                ? a.client.fullName || `${a.client.firstName} ${a.client.lastName}`.trim()
+                : 'Client';
               return (
                 <li key={a.id} className="card">
                   <div className="review-head">
@@ -79,16 +115,20 @@ export const AdminReviews: React.FC = () => {
                   </p>
 
                   <p className="muted small-text">
-                    {client ? `${client.firstName} ${client.lastName}` : 'Client'} · {r && (
-                      <a
-                        href={`#/demandes/${r.id}`}
-                        onClick={(e) => {
-                          e.preventDefault();
-                          navigate('admin-request-detail', r.id);
-                        }}
-                      >
-                        {r.title}
-                      </a>
+                    {clientName}
+                    {a.request && (
+                      <>
+                        {' · '}
+                        <a
+                          href={`#/demandes/${a.request.id}`}
+                          onClick={(e) => {
+                            e.preventDefault();
+                            navigate('admin-request-detail', a.request!.id);
+                          }}
+                        >
+                          {a.request.title}
+                        </a>
+                      </>
                     )}
                   </p>
 

@@ -1,51 +1,87 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { useApp } from '../../context/AppContext';
-import { RequestStatus } from '../../types';
+import { RequestItem, RequestStatus, User } from '../../types';
 import { Icon } from '../common/Icon';
-import { SERVICES, CATEGORIES, STATUS_MAP } from '../../data/kwaboData';
+import { STATUS_MAP } from '../../data/kwaboData';
+import { api, ApiError } from '../../services/api';
+import { mapRequest, mapUser } from '../../services/mappers';
 
 interface AdminRequestsProps {
   isOperatorView?: boolean;
 }
 
 export const AdminRequests: React.FC<AdminRequestsProps> = ({ isOperatorView }) => {
-  const { requests, users, messages, updateRequestStatus, navigate, addToast, role, currentUser } = useApp();
+  const { categories, services, navigate, addToast, confirm, role, refreshCounters } = useApp();
 
   const isOperator = isOperatorView || role === 'OPERATOR';
-  const baseRequests = isOperator
-    ? requests.filter(r => r.operatorId === currentUser?.id)
-    : requests;
 
   const [q, setQ] = useState('');
+  const [debouncedQ, setDebouncedQ] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [operatorFilter, setOperatorFilter] = useState('all');
   const [categoryFilter, setCategoryFilter] = useState('all');
   const [urgencyFilter, setUrgencyFilter] = useState('all');
   const [viewMode, setViewMode] = useState<'list' | 'kanban'>('list');
   const [page, setPage] = useState(1);
-  const pageSize = 10;
+  const [totalPages, setTotalPages] = useState(1);
+  const [requests, setRequests] = useState<RequestItem[]>([]);
+  const [operators, setOperators] = useState<User[]>([]);
+  const [loading, setLoading] = useState(true);
 
-  const operators = users.filter(u => u.role === 'OPERATOR');
+  useEffect(() => {
+    const t = window.setTimeout(() => {
+      setDebouncedQ(q.trim());
+      setPage(1);
+    }, 250);
+    return () => window.clearTimeout(t);
+  }, [q]);
 
-  const filtered = baseRequests.filter(r => {
-    const client = users.find(u => u.id === r.userId);
-    const clientName = client ? `${client.firstName} ${client.lastName}` : '';
-    const needle = q.trim().toLowerCase();
-    const service = SERVICES.find(s => s.id === r.serviceId);
+  useEffect(() => {
+    if (isOperator) return;
+    let cancelled = false;
+    api<any>('/admin/team')
+      .then((res) => {
+        if (cancelled) return;
+        const raw = Array.isArray(res?.data) ? res.data : Array.isArray(res) ? res : [];
+        const mapped = raw.map(mapUser);
+        setOperators(mapped.filter((u: User) => u.role === 'OPERATOR'));
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [isOperator]);
 
-    const matchesQ = !needle || (r.title + ' ' + r.tracking + ' ' + clientName).toLowerCase().includes(needle);
-    const matchesStatus = statusFilter === 'all' || r.status === statusFilter;
-    const matchesOperator = isOperator || operatorFilter === 'all' || 
-      (operatorFilter === 'none' ? !r.operatorId : r.operatorId === operatorFilter);
-    const matchesCategory = categoryFilter === 'all' || (service && service.cat === categoryFilter);
-    const matchesUrgency = urgencyFilter === 'all' || r.urgency === urgencyFilter;
+  const buildFilterParams = useCallback(
+    (overridePerPage?: number, overridePage?: number) => ({
+      q: debouncedQ || undefined,
+      status: statusFilter !== 'all' ? statusFilter : undefined,
+      operator: !isOperator && operatorFilter !== 'all' ? operatorFilter : undefined,
+      category: categoryFilter !== 'all' ? categoryFilter : undefined,
+      urgency: urgencyFilter !== 'all' ? urgencyFilter : undefined,
+      page: overridePage ?? (viewMode === 'kanban' ? 1 : page),
+      per_page: overridePerPage ?? (viewMode === 'kanban' ? 200 : 20),
+    }),
+    [debouncedQ, statusFilter, isOperator, operatorFilter, categoryFilter, urgencyFilter, viewMode, page]
+  );
 
-    return matchesQ && matchesStatus && matchesOperator && matchesCategory && matchesUrgency;
-  });
+  const loadRequests = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await api<any>('/admin/requests', { params: buildFilterParams() });
+      const raw = Array.isArray(res?.data) ? res.data : Array.isArray(res) ? res : [];
+      setRequests(raw.map(mapRequest));
+      setTotalPages(Math.max(1, Number(res?.meta?.last_page ?? 1)));
+    } catch {
+      setRequests([]);
+    } finally {
+      setLoading(false);
+    }
+  }, [buildFilterParams]);
 
-  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
-  const currentPage = Math.min(page, totalPages);
-  const pagedList = filtered.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+  useEffect(() => {
+    loadRequests();
+  }, [loadRequests]);
 
   const renderStatusBadge = (status: RequestStatus) => {
     const meta = STATUS_MAP[status];
@@ -62,49 +98,55 @@ export const AdminRequests: React.FC<AdminRequestsProps> = ({ isOperatorView }) 
     return d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', year: 'numeric' });
   };
 
-  const exportCsv = () => {
-    const rows = filtered.map(r => {
-      const s = SERVICES.find(srv => srv.id === r.serviceId);
-      const c = users.find(u => u.id === r.userId);
-      const o = users.find(u => u.id === r.operatorId);
-      const row = [
-        r.tracking,
-        r.title,
-        s ? s.name : '',
-        c ? `${c.firstName} ${c.lastName}` : '',
-      ];
-      if (!isOperator) {
-        row.push(o ? `${o.firstName} ${o.lastName}` : 'Non attribuée');
-      }
-      row.push(
-        STATUS_MAP[r.status].label,
-        r.urgency === 'urgent' ? 'Urgent' : 'Normale',
-        formatDate(r.createdAt)
-      );
-      return row;
-    });
+  const exportCsv = async () => {
+    try {
+      const res = await api<any>('/admin/requests', { params: buildFilterParams(200, 1) });
+      const list: RequestItem[] = (Array.isArray(res?.data) ? res.data : []).map(mapRequest);
 
-    const header = isOperator
-      ? ['Suivi', 'Titre', 'Service', 'Client', 'Statut', 'Urgence', 'Date']
-      : ['Suivi', 'Titre', 'Service', 'Client', 'Agent', 'Statut', 'Urgence', 'Date'];
-    const csvContent = [header, ...rows]
-      .map(row => row.map(val => `"${String(val).replace(/"/g, '""')}"`).join(';'))
-      .join('\r\n');
+      const rows = list.map(r => {
+        const s = r.service || services.find(srv => srv.slug === r.serviceSlug || srv.id === r.serviceId);
+        const clientName = r.client
+          ? r.client.fullName || `${r.client.firstName} ${r.client.lastName}`.trim()
+          : '';
+        const opName = r.operator
+          ? r.operator.fullName || `${r.operator.firstName} ${r.operator.lastName}`.trim()
+          : 'Non attribuée';
+        const row = [r.tracking, r.title, s ? s.name : '', clientName];
+        if (!isOperator) {
+          row.push(opName);
+        }
+        row.push(
+          STATUS_MAP[r.status].label,
+          r.urgency === 'urgent' ? 'Urgent' : 'Normale',
+          formatDate(r.createdAt)
+        );
+        return row;
+      });
 
-    const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8' });
-    const link = document.createElement('a');
-    link.href = URL.createObjectURL(blob);
-    link.download = 'kwabo-demandes.csv';
-    link.click();
-    URL.revokeObjectURL(link.href);
-    addToast('kwabo-demandes.csv téléchargé.');
+      const header = isOperator
+        ? ['Suivi', 'Titre', 'Service', 'Client', 'Statut', 'Urgence', 'Date']
+        : ['Suivi', 'Titre', 'Service', 'Client', 'Agent', 'Statut', 'Urgence', 'Date'];
+      const csvContent = [header, ...rows]
+        .map(row => row.map(val => `"${String(val).replace(/"/g, '""')}"`).join(';'))
+        .join('\r\n');
+
+      const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8' });
+      const link = document.createElement('a');
+      link.href = URL.createObjectURL(blob);
+      link.download = 'kwabo-demandes.csv';
+      link.click();
+      URL.revokeObjectURL(link.href);
+      addToast('kwabo-demandes.csv téléchargé.', 'success');
+    } catch {
+      addToast("Impossible d'exporter les demandes.", 'error');
+    }
   };
 
   const handleDragStart = (e: React.DragEvent, reqId: string) => {
     e.dataTransfer.setData('text/plain', reqId);
   };
 
-  const handleDrop = (e: React.DragEvent, targetStatus: RequestStatus) => {
+  const handleDrop = async (e: React.DragEvent, targetStatus: RequestStatus) => {
     e.preventDefault();
     const reqId = e.dataTransfer.getData('text/plain');
     if (!reqId) return;
@@ -112,10 +154,27 @@ export const AdminRequests: React.FC<AdminRequestsProps> = ({ isOperatorView }) 
     if (!req || req.status === targetStatus) return;
 
     if (targetStatus === 'cancelled') {
-      if (!window.confirm(`Annuler la demande « ${req.title} » ?`)) return;
+      const ok = await confirm({
+        title: 'Annuler cette demande ?',
+        message: `La demande « ${req.title} » sera marquée comme annulée et le client sera prévenu.`,
+        confirmLabel: 'Annuler la demande',
+        cancelLabel: 'Conserver',
+        variant: 'danger',
+      });
+      if (!ok) return;
     }
-    updateRequestStatus(reqId, targetStatus);
-    addToast(`Statut mis à jour : ${STATUS_MAP[targetStatus].label}. Le client est prévenu.`);
+
+    try {
+      await api(`/admin/requests/${reqId}/status`, {
+        method: 'PATCH',
+        body: { status: targetStatus },
+      });
+      setRequests(prev => prev.map(r => (r.id === reqId ? { ...r, status: targetStatus } : r)));
+      await refreshCounters();
+      addToast(`Statut mis à jour : ${STATUS_MAP[targetStatus].label}. Le client est prévenu.`, 'success');
+    } catch (err) {
+      addToast(err instanceof ApiError ? err.message : 'Erreur lors du changement de statut.', 'error');
+    }
   };
 
   const kanbanColumns: RequestStatus[] = ['pending', 'active', 'done', 'cancelled'];
@@ -134,10 +193,7 @@ export const AdminRequests: React.FC<AdminRequestsProps> = ({ isOperatorView }) 
             type="search"
             placeholder="Filtrer : titre, suivi ou client…"
             value={q}
-            onChange={(e) => {
-              setQ(e.target.value);
-              setPage(1);
-            }}
+            onChange={(e) => setQ(e.target.value)}
           />
         </div>
 
@@ -189,8 +245,8 @@ export const AdminRequests: React.FC<AdminRequestsProps> = ({ isOperatorView }) 
           }}
         >
           <option value="all">Tous les univers</option>
-          {CATEGORIES.map(c => (
-            <option key={c.id} value={c.id}>{c.short}</option>
+          {categories.map(c => (
+            <option key={c.id} value={c.slug || c.id}>{c.short}</option>
           ))}
         </select>
 
@@ -244,7 +300,11 @@ export const AdminRequests: React.FC<AdminRequestsProps> = ({ isOperatorView }) 
       {/* Requests Body: List Table vs Kanban */}
       {viewMode === 'list' ? (
         <section className="card">
-          {filtered.length === 0 ? (
+          {loading ? (
+            <div className="empty-state">
+              <p className="muted">Chargement des demandes…</p>
+            </div>
+          ) : requests.length === 0 ? (
             <div className="empty-state">
               <span className="tile tile-lg">
                 <Icon name="magnifying-glass" size={32} />
@@ -267,10 +327,14 @@ export const AdminRequests: React.FC<AdminRequestsProps> = ({ isOperatorView }) 
                     </tr>
                   </thead>
                   <tbody>
-                    {pagedList.map(r => {
-                      const client = users.find(u => u.id === r.userId);
-                      const operator = users.find(u => u.id === r.operatorId);
-                      const unread = messages.filter(m => m.requestId === r.id && m.from === 'client' && !m.read).length;
+                    {requests.map(r => {
+                      const clientName = r.client
+                        ? r.client.fullName || `${r.client.firstName} ${r.client.lastName}`.trim()
+                        : 'Client';
+                      const opName = r.operator
+                        ? r.operator.fullName || `${r.operator.firstName} ${r.operator.lastName}`.trim()
+                        : null;
+                      const unread = r.unreadMessages ?? 0;
 
                       return (
                         <tr key={r.id}>
@@ -300,16 +364,10 @@ export const AdminRequests: React.FC<AdminRequestsProps> = ({ isOperatorView }) 
                               </span>
                             )}
                           </td>
-                          <td data-label="Client">
-                            {client ? `${client.firstName} ${client.lastName}` : 'Client'}
-                          </td>
+                          <td data-label="Client">{clientName}</td>
                           {!isOperator && (
                             <td data-label="Agent">
-                              {operator ? (
-                                `${operator.firstName} ${operator.lastName}`
-                              ) : (
-                                <span className="muted">Non attribuée</span>
-                              )}
+                              {opName || <span className="muted">Non attribuée</span>}
                             </td>
                           )}
                           <td data-label="Statut">
@@ -330,19 +388,19 @@ export const AdminRequests: React.FC<AdminRequestsProps> = ({ isOperatorView }) 
                   <button
                     type="button"
                     className="btn btn-ghost btn-sm"
-                    disabled={currentPage <= 1}
-                    onClick={() => setPage(currentPage - 1)}
+                    disabled={page <= 1}
+                    onClick={() => setPage(p => Math.max(1, p - 1))}
                   >
                     Précédent
                   </button>
                   <span className="pagination-info">
-                    Page {currentPage} sur {totalPages}
+                    Page {page} sur {totalPages}
                   </span>
                   <button
                     type="button"
                     className="btn btn-ghost btn-sm"
-                    disabled={currentPage >= totalPages}
-                    onClick={() => setPage(currentPage + 1)}
+                    disabled={page >= totalPages}
+                    onClick={() => setPage(p => Math.min(totalPages, p + 1))}
                   >
                     Suivant
                   </button>
@@ -354,7 +412,7 @@ export const AdminRequests: React.FC<AdminRequestsProps> = ({ isOperatorView }) 
       ) : (
         <div className="kanban">
           {kanbanColumns.map(statusKey => {
-            const columnCards = filtered.filter(r => r.status === statusKey);
+            const columnCards = requests.filter(r => r.status === statusKey);
             const meta = STATUS_MAP[statusKey];
 
             return (
@@ -376,8 +434,15 @@ export const AdminRequests: React.FC<AdminRequestsProps> = ({ isOperatorView }) 
                     <p className="muted small-text kanban-empty">Aucune demande</p>
                   ) : (
                     columnCards.map(r => {
-                      const client = users.find(u => u.id === r.userId);
-                      const operator = users.find(u => u.id === r.operatorId);
+                      const clientName = r.client
+                        ? r.client.fullName || `${r.client.firstName} ${r.client.lastName}`.trim()
+                        : 'Client';
+                      const opInitials = r.operator
+                        ? `${r.operator.firstName?.[0] || ''}${r.operator.lastName?.[0] || ''}`.toUpperCase() || 'OP'
+                        : null;
+                      const opFull = r.operator
+                        ? r.operator.fullName || `${r.operator.firstName} ${r.operator.lastName}`
+                        : '';
 
                       return (
                         <a
@@ -393,7 +458,7 @@ export const AdminRequests: React.FC<AdminRequestsProps> = ({ isOperatorView }) 
                         >
                           <strong>{r.title}</strong>
                           <small>{r.tracking}</small>
-                          <small>{client ? `${client.firstName} ${client.lastName}` : 'Client'}</small>
+                          <small>{clientName}</small>
                           <span className="kanban-foot">
                             {r.urgency === 'urgent' && (
                               <span className="badge badge-red">
@@ -401,9 +466,9 @@ export const AdminRequests: React.FC<AdminRequestsProps> = ({ isOperatorView }) 
                                 Urgent
                               </span>
                             )}
-                            {operator ? (
-                              <span className="avatar avatar-xs" title={`${operator.firstName} ${operator.lastName}`}>
-                                {operator.firstName[0]}{operator.lastName[0]}
+                            {opInitials ? (
+                              <span className="avatar avatar-xs" title={opFull}>
+                                {opInitials}
                               </span>
                             ) : (
                               <span className="muted small-text">Sans agent</span>
@@ -422,4 +487,3 @@ export const AdminRequests: React.FC<AdminRequestsProps> = ({ isOperatorView }) 
     </>
   );
 };
-

@@ -1,6 +1,5 @@
 import React, { useState } from 'react';
 import { AppProvider, useApp } from './context/AppContext';
-import { TesterBar } from './components/layout/TesterBar';
 import { PublicHeader } from './components/layout/PublicHeader';
 import { PublicFooter } from './components/layout/PublicFooter';
 import { AppSidebar } from './components/layout/AppSidebar';
@@ -57,12 +56,25 @@ import { OperatorMissionDetail } from './components/operator/OperatorMissionDeta
 // Common components
 import { PhotoModal } from './components/common/PhotoModal';
 import { ToastContainer } from './components/common/ToastContainer';
+import { ConfirmDialog } from './components/common/ConfirmDialog';
 
 const MainAppContent: React.FC = () => {
-  const { role, currentView, currentUser, navigate } = useApp();
+  const { role, currentView, currentUser, authLoading, navigate } = useApp();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [selectedRequest, setSelectedRequest] = useState('Dossier visa');
+
+  if (authLoading && currentView !== 'reset-password') {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center bg-[#f9f7f4] gap-3">
+        <div
+          className="w-10 h-10 rounded-full border-4 border-[#e2ddd5] border-t-[#1d3a2f] animate-spin"
+          aria-label="Chargement"
+        />
+        <p className="text-sm text-[#6b655e]">Chargement de votre espace KWABO…</p>
+      </div>
+    );
+  }
 
   // Handle category selection from categories section
   const handleSelectCategory = (catId: string) => {
@@ -79,11 +91,15 @@ const MainAppContent: React.FC = () => {
   };
 
   // 1. PUBLIC OR AUTH VIEWS
-  if (role === 'VISITOR' || currentView === 'login' || currentView === 'register' || currentView === 'forgot-password' || currentView === 'reset-password' || currentView === 'privacy' || currentView === 'cgu') {
+  if (role === 'VISITOR' || currentView === 'login' || currentView === 'admin-login' || currentView === 'operator-login' || currentView === 'register' || currentView === 'forgot-password' || currentView === 'reset-password' || currentView === 'privacy' || currentView === 'cgu') {
     return (
       <div className="min-h-screen flex flex-col bg-[#f9f7f4]">
         {currentView === 'login' ? (
-          <LoginPage />
+          <LoginPage mode="client" />
+        ) : currentView === 'admin-login' ? (
+          <LoginPage mode="admin" />
+        ) : currentView === 'operator-login' ? (
+          <LoginPage mode="operator" />
         ) : currentView === 'register' ? (
           <RegisterPage />
         ) : currentView === 'forgot-password' || currentView === 'reset-password' ? (
@@ -123,6 +139,7 @@ const MainAppContent: React.FC = () => {
 
         <ServiceDetailModal />
         <PhotoModal />
+        <ConfirmDialog />
         <ToastContainer />
       </div>
     );
@@ -169,8 +186,6 @@ const MainAppContent: React.FC = () => {
 
   return (
     <div className="app-wrapper">
-      <TesterBar />
-
       <div className="app">
         {/* Sidebar */}
         <AppSidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
@@ -220,6 +235,7 @@ const MainAppContent: React.FC = () => {
 
       <ServiceDetailModal />
       <PhotoModal />
+      <ConfirmDialog />
       <ToastContainer />
     </div>
   );

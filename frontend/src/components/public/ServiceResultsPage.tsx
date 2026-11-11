@@ -1,8 +1,7 @@
 import React from 'react';
-import { ArrowLeft, ArrowRight, Building2, FileCheck2, HeartHandshake, Receipt, Send, ShieldCheck, Truck, Video } from 'lucide-react';
+import { ArrowLeft, ArrowRight, FileCheck2, Receipt, ShieldCheck, Video } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
-import { CATEGORIES } from '../../data/kwaboData';
-import { Service } from '../../types';
+import { SERVICES } from '../../data/kwaboData';
 
 const requestServiceIds: Record<string, string[]> = {
   'Suivi de chantier': ['suivi-chantier'],
@@ -24,13 +23,6 @@ const requestServiceIds: Record<string, string[]> = {
   'Factures SBEE': ['soutien-famille'],
 };
 
-const categoryIcons: Record<string, React.ElementType> = {
-  immobilier: Building2,
-  famille: HeartHandshake,
-  demarches: Send,
-  logistique: Truck,
-};
-
 const guarantees = [
   { icon: Video, title: 'Vidéos et photos', description: 'Datées, pour voir le travail réalisé.' },
   { icon: Receipt, title: 'Reçus scannés', description: 'Pour chaque dépense engagée.' },
@@ -44,9 +36,9 @@ interface Props {
 }
 
 export const ServiceResultsPage: React.FC<Props> = ({ request, onBack }) => {
-  const { services, openServiceModal } = useApp();
+  const { services, categories, openServiceModal } = useApp();
   const matchingIds = requestServiceIds[request] ?? [];
-  const matchingServices = services.filter(service => service.available && matchingIds.includes(service.id));
+  const matchingServices = services.filter(service => service.available && matchingIds.includes(service.slug || service.id));
 
   return (
     <main id="services" className="min-h-[70vh] bg-[#f9f8f6] px-5 py-10 sm:px-8 sm:py-12">
@@ -67,8 +59,9 @@ export const ServiceResultsPage: React.FC<Props> = ({ request, onBack }) => {
         {matchingServices.length ? (
           <ul className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4">
             {matchingServices.map(service => {
-              const category = CATEGORIES.find(item => item.id === service.cat);
-              const CategoryIcon = categoryIcons[service.cat] ?? FileCheck2;
+              const category = categories.find(item => item.id === service.cat);
+              const fallbackPhoto = SERVICES.find(srv => srv.id === (service.slug || service.id))?.photo;
+              const photoSrc = service.photo || fallbackPhoto || '/assets/photos/chantier-500.jpg';
               return (
                 <li key={service.id}>
                   <button
@@ -76,8 +69,12 @@ export const ServiceResultsPage: React.FC<Props> = ({ request, onBack }) => {
                     onClick={() => openServiceModal(service)}
                     className="group flex min-h-[204px] w-full flex-col overflow-hidden rounded-[20px] border border-[#dce4df] bg-white text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#1a5c3a]"
                   >
-                    <span className="flex h-[58px] items-center justify-between bg-[#fff7df] px-5 text-[#8a6200]">
-                      <CategoryIcon aria-hidden="true" className="h-6 w-6" />
+                    <span className="flex h-[62px] items-center justify-between bg-[#fff7df] px-5 text-[#8a6200]">
+                      <img
+                        src={photoSrc}
+                        alt={service.name}
+                        className="h-10 w-10 shrink-0 rounded-lg border border-white/80 object-cover shadow-sm"
+                      />
                       <span className="text-xs font-bold uppercase tracking-wide">{category?.short}</span>
                     </span>
                     <span className="flex flex-1 flex-col px-[18px] py-4">

@@ -1,7 +1,13 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useApp } from '../../context/AppContext';
 import { Icon } from '../common/Icon';
-import { SERVICES, CATEGORIES } from '../../data/kwaboData';
+import { CategoryBreakdownCard } from '../common/CategoryBreakdownCard';
+import { api } from '../../services/api';
+import { mapAudit, mapRequest } from '../../services/mappers';
+import { AuditLogItem, Category, RequestItem } from '../../types';
+
+/* Palette des graphiques */
+const CHART_COLORS = ['#1a5c38', '#d4a017', '#3f8f63', '#8a6d1d', '#6bb38a', '#b8860b', '#2f7a4f', '#e3c14f'];
 
 /* Animations ajoutées (CSS uniquement, aucune logique modifiée) */
 const ADMIN_DASHBOARD_ANIMATIONS = `
@@ -38,6 +44,14 @@ const ADMIN_DASHBOARD_ANIMATIONS = `
 @keyframes kwTimelineIn {
   from { opacity: 0; transform: translateY(-8px); }
   to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes kwDonutDraw {
+  from { stroke-dasharray: 0 var(--circ); }
+  to   { stroke-dasharray: var(--len) var(--circ); }
+}
+@keyframes kwChartSwap {
+  from { opacity: 0; transform: scale(0.94); }
+  to   { opacity: 1; transform: scale(1); }
 }
 
 /* Statistiques */
@@ -153,6 +167,190 @@ const ADMIN_DASHBOARD_ANIMATIONS = `
   opacity: 0.8;
 }
 
+/* Cartes de statistiques : une couleur par carte, texte blanc, sans soulignement */
+.stats .kw-stat {
+  position: relative;
+  overflow: hidden;
+  border: none !important;
+  box-shadow: 0 8px 20px rgba(18, 63, 40, 0.25);
+  transition: transform 0.25s ease, box-shadow 0.25s ease;
+}
+.stats .kw-stat::after {
+  content: '';
+  position: absolute;
+  right: -28px;
+  bottom: -34px;
+  width: 110px;
+  height: 110px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.12);
+  pointer-events: none;
+  transition: transform 0.5s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.stats .kw-stat:hover::after {
+  transform: scale(1.35);
+}
+.stats .kw-stat,
+.stats .kw-stat * {
+  color: #ffffff !important;
+}
+.stats .kw-stat a,
+.stats .kw-stat a:hover,
+.stats .kw-stat a:focus {
+  text-decoration: none !important;
+}
+.stats .kw-stat .tile {
+  background: rgba(255, 255, 255, 0.2) !important;
+}
+.stats .kw-stat:hover {
+  box-shadow: 0 14px 28px rgba(18, 63, 40, 0.35);
+}
+
+/* 1. Vert profond */
+.stats .kw-stat:nth-child(1) {
+  background: linear-gradient(135deg, #1a5c38 0%, #123f28 100%) !important;
+}
+/* 2. Vert franc */
+.stats .kw-stat:nth-child(2) {
+  background: linear-gradient(135deg, #3a8a5c 0%, #2a7048 100%) !important;
+}
+/* 3. Or foncé */
+.stats .kw-stat:nth-child(3) {
+  background: linear-gradient(135deg, #b8860b 0%, #8f6a08 100%) !important;
+}
+/* 4. Ardoise */
+.stats .kw-stat:nth-child(4) {
+  background: linear-gradient(135deg, #455a4f 0%, #2f4036 100%) !important;
+}
+
+/* Bouton « Voir le graphe » */
+.kw-toggle-row {
+  display: flex;
+  justify-content: flex-end;
+  margin: 4px 0 10px;
+}
+.kw-toggle-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  line-height: 1;
+  color: #1a5c38;
+  background: rgba(26, 92, 56, 0.08);
+  border: 1px solid rgba(26, 92, 56, 0.25);
+  border-radius: 999px;
+  cursor: pointer;
+  transition: transform 0.2s ease, background-color 0.25s ease, color 0.25s ease, box-shadow 0.25s ease;
+}
+.kw-toggle-btn:hover {
+  transform: translateY(-2px);
+  background: #1a5c38;
+  color: #fff;
+  box-shadow: 0 4px 12px rgba(26, 92, 56, 0.25);
+}
+.kw-toggle-btn:active {
+  transform: scale(0.96);
+}
+.kw-toggle-btn:focus-visible {
+  outline: 2px solid #d4a017;
+  outline-offset: 2px;
+}
+
+/* Graphiques SVG */
+.kw-chart {
+  animation: kwChartSwap 0.45s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.kw-donut-wrap {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+.kw-donut {
+  width: 150px;
+  height: 150px;
+  flex: none;
+}
+.kw-donut circle.kw-seg {
+  animation: kwDonutDraw 0.9s cubic-bezier(0.22, 1, 0.36, 1) both;
+  transition: opacity 0.2s ease, stroke-width 0.2s ease;
+  cursor: pointer;
+}
+.kw-donut:hover circle.kw-seg {
+  opacity: 0.55;
+}
+.kw-donut circle.kw-seg:hover {
+  opacity: 1;
+  stroke-width: 26;
+}
+.kw-donut-total {
+  font-size: 22px;
+  font-weight: 700;
+  fill: currentColor;
+}
+.kw-donut-sub {
+  font-size: 9px;
+  opacity: 0.65;
+  fill: currentColor;
+}
+.kw-legend {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+  font-size: 0.85rem;
+}
+.kw-legend li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  opacity: 0;
+  animation: kwSlideRight 0.45s ease forwards;
+}
+.kw-legend .dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex: none;
+}
+.kw-legend strong {
+  margin-left: auto;
+  padding-left: 12px;
+}
+.kw-colchart {
+  width: 100%;
+  height: auto;
+  max-height: 210px;
+  display: block;
+}
+.kw-colchart rect.kw-col {
+  transform-box: fill-box;
+  transform-origin: bottom;
+  animation: kwGrowY 0.9s cubic-bezier(0.22, 1, 0.36, 1) both;
+  transition: filter 0.2s ease;
+  cursor: pointer;
+}
+.kw-colchart rect.kw-col:hover {
+  filter: brightness(1.15);
+}
+.kw-colchart text {
+  fill: currentColor;
+  font-size: 11px;
+}
+.kw-colchart text.kw-col-value {
+  font-weight: 700;
+  animation: kwValueIn 0.5s ease both;
+}
+.kw-chart-empty {
+  text-align: center;
+  padding: 16px 0;
+  opacity: 0.7;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .kw-stat,
   .kw-stat strong,
@@ -165,7 +363,12 @@ const ADMIN_DASHBOARD_ANIMATIONS = `
   .kw-vbar .vbar-label,
   .kw-bar .bars-fill,
   .kw-bar .bars-value,
-  .kw-details[open] .table {
+  .kw-details[open] .table,
+  .kw-chart,
+  .kw-donut circle.kw-seg,
+  .kw-legend li,
+  .kw-colchart rect.kw-col,
+  .kw-colchart text.kw-col-value {
     opacity: 1 !important;
     animation: none !important;
     transition: none !important;
@@ -176,17 +379,152 @@ const ADMIN_DASHBOARD_ANIMATIONS = `
 }
 `;
 
+interface WorkItem {
+  r: RequestItem;
+  reasons: Array<[string, string]>;
+}
+
+interface MonthDatum {
+  label: string;
+  full: string;
+  amount: number;
+}
+
+interface CatRow {
+  c: Pick<Category, 'id' | 'name' | 'short'>;
+  value: number;
+}
+
+interface OpLoadRow {
+  o: { id: string; firstName: string; lastName: string };
+  count: number;
+}
+
+function reasonIconFromCode(code: string): string {
+  switch (code) {
+    case 'quote':
+    case 'needs_quote':
+    case 'quote_missing':
+      return 'document-text';
+    case 'assign':
+    case 'unassigned':
+    case 'needs_operator':
+      return 'user-plus';
+    case 'messages':
+    case 'unread_messages':
+      return 'chat-bubble-left-right';
+    default:
+      return 'exclamation-circle';
+  }
+}
+
 export const AdminDashboard: React.FC = () => {
-  const { requests, users, invoices, auditLogs, messages, navigate, currentUser } = useApp();
+  const { categories, services, navigate } = useApp();
   const [showChartTable, setShowChartTable] = useState(false);
+  const [showOpChart, setShowOpChart] = useState(false);
+  const [loading, setLoading] = useState(true);
+
+  const [stats, setStats] = useState({
+    quotesToPrepare: 0,
+    activeMissions: 0,
+    revenueMonth: 0,
+    awaitingPayment: 0,
+  });
+  const [pendingWork, setPendingWork] = useState<WorkItem[]>([]);
+  const [monthsData, setMonthsData] = useState<MonthDatum[]>([]);
+  const [catRows, setCatRows] = useState<CatRow[]>([]);
+  const [opRows, setOpRows] = useState<OpLoadRow[]>([]);
+  const [auditLogs, setAuditLogs] = useState<AuditLogItem[]>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    api<any>('/admin/dashboard')
+      .then((res) => {
+        if (cancelled) return;
+        const d = res?.data ?? res ?? {};
+        const st = d.stats ?? {};
+        setStats({
+          quotesToPrepare: Number(st.quotes_to_prepare ?? 0),
+          activeMissions: Number(st.active_missions ?? 0),
+          revenueMonth: Number(st.revenue_month ?? 0),
+          awaitingPayment: Number(st.awaiting_payment ?? 0),
+        });
+
+        const rawWork = Array.isArray(d.work) ? d.work : [];
+        setPendingWork(
+          rawWork.map((w: any) => {
+            const req = mapRequest(w.request ?? w);
+            const rawReasons = Array.isArray(w.reasons) ? w.reasons : [];
+            const reasons: Array<[string, string]> = rawReasons.map((rs: any) => {
+              if (Array.isArray(rs)) return [String(rs[0]), String(rs[1])];
+              return [reasonIconFromCode(String(rs?.code ?? '')), String(rs?.label ?? rs?.code ?? '')];
+            });
+            return { r: req, reasons };
+          })
+        );
+
+        const rawRev = Array.isArray(d.revenue) ? d.revenue : [];
+        setMonthsData(
+          rawRev.map((m: any) => ({
+            label: m.label || m.short || m.month || '',
+            full: m.full || m.label || m.month || '',
+            amount: Number(m.amount ?? m.total ?? m.value ?? 0),
+          }))
+        );
+
+        const rawCats = Array.isArray(d.by_category) ? d.by_category : [];
+        if (rawCats.length > 0) {
+          setCatRows(
+            rawCats.map((item: any) => {
+              const slug = String(item.slug ?? item.category ?? item.id ?? '');
+              const matched = categories.find(c => c.id === slug || c.slug === slug);
+              return {
+                c: {
+                  id: slug || matched?.id || String(item.name),
+                  name: item.name || matched?.name || slug,
+                  short: item.short || matched?.short || item.name || slug,
+                },
+                value: Number(item.count ?? item.value ?? item.total ?? 0),
+              };
+            })
+          );
+        } else {
+          setCatRows(categories.map(c => ({ c, value: 0 })));
+        }
+
+        const rawOps = Array.isArray(d.operator_load) ? d.operator_load : [];
+        setOpRows(
+          rawOps.map((item: any) => {
+            const op = item.operator ?? item;
+            const fullName = String(op.full_name ?? op.name ?? `${op.first_name ?? ''} ${op.last_name ?? ''}`.trim());
+            const parts = fullName.split(/\s+/);
+            return {
+              o: {
+                id: String(op.id ?? fullName),
+                firstName: op.first_name || parts[0] || fullName,
+                lastName: op.last_name || parts.slice(1).join(' ') || '',
+              },
+              count: Number(item.count ?? item.active ?? item.active_count ?? item.missions ?? 0),
+            };
+          })
+        );
+
+        const rawActivity = Array.isArray(d.recent_activity) ? d.recent_activity : [];
+        setAuditLogs(rawActivity.map(mapAudit));
+      })
+      .catch(() => {})
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [categories]);
 
   const formatMoney = (n: number) => {
     return new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 }).format(n);
-  };
-
-  const formatDate = (iso: string) => {
-    const d = new Date(iso);
-    return d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' });
   };
 
   const formatDateTime = (iso: string) => {
@@ -194,65 +532,17 @@ export const AdminDashboard: React.FC = () => {
     return `${d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })} à ${d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}`;
   };
 
-  // KPI & Stats calculations
-  const pendingQuotes = requests.filter(r => r.status === 'pending' && !r.quote);
-  const activeCount = requests.filter(r => r.status === 'active').length;
-  
-  // Paid this month
-  const now = new Date();
-  const firstOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-  const paidThisMonth = invoices
-    .filter(i => i.status === 'paid' && new Date(i.paidAt || i.createdAt) >= firstOfMonth)
-    .reduce((sum, i) => sum + i.amount, 0);
-
-  // Due invoices
-  const dueAmount = invoices
-    .filter(i => i.status === 'due')
-    .reduce((sum, i) => sum + i.amount, 0);
-
-  // Pending work list (from admin.js pendingWork)
-  const pendingWork = requests
-    .filter(r => ['pending', 'active'].includes(r.status))
-    .map(r => {
-      const reasons: [string, string][] = [];
-      const unread = messages.filter(m => m.requestId === r.id && m.from === 'client' && !m.read).length;
-      if (r.status === 'pending' && !r.quote) reasons.push(['document-text', 'Devis à préparer']);
-      if (!r.operatorId) reasons.push(['user-plus', 'Agent à attribuer']);
-      if (unread > 0) reasons.push(['chat-bubble-left-right', `${unread} message${unread > 1 ? 's' : ''}`]);
-      return { r, reasons };
-    })
-    .filter(w => w.reasons.length > 0)
-    .sort((a, b) => (b.r.urgency === 'urgent' ? 1 : 0) - (a.r.urgency === 'urgent' ? 1 : 0));
-
-  // Monthly Revenue Chart data (6 months)
-  const monthsData = Array.from({ length: 6 }, (_, idx) => {
-    const offset = idx - 5;
-    const d = new Date(now.getFullYear(), now.getMonth() + offset, 1);
-    const nextD = new Date(now.getFullYear(), now.getMonth() + offset + 1, 1);
-    const amount = invoices
-      .filter(i => i.status === 'paid' && new Date(i.paidAt || i.createdAt) >= d && new Date(i.paidAt || i.createdAt) < nextD)
-      .reduce((sum, i) => sum + i.amount, 0);
-    return {
-      label: d.toLocaleDateString('fr-FR', { month: 'short' }),
-      full: d.toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' }),
-      amount: amount > 0 ? amount : (idx === 1 ? 450 : idx === 2 ? 800 : idx === 3 ? 1200 : idx === 4 ? 950 : 1650),
-    };
-  });
   const maxRevenue = Math.max(1, ...monthsData.map(m => m.amount));
+  const maxOpLoad = Math.max(1, ...opRows.map(o => o.count));
 
-  // Category distribution
-  const catRows = CATEGORIES.map(c => ({
-    c,
-    value: requests.filter(r => {
-      const s = SERVICES.find(srv => srv.id === r.serviceId);
-      return s?.cat === c.id;
-    }).length,
-  }));
-  const maxCatValue = Math.max(1, ...catRows.map(row => row.value));
+  // Données du graphique (colonnes des agents)
 
-  // Operators load
-  const operators = users.filter(u => u.role === 'OPERATOR');
-  const maxOpLoad = Math.max(1, ...operators.map(o => requests.filter(r => r.operatorId === o.id && r.status === 'active').length));
+  const COL_W = 300;
+  const COL_BASE = 150;
+  const COL_MAX_H = 110;
+  const colSlot = opRows.length > 0 ? Math.min(100, 280 / opRows.length) : 100;
+  const colStart = (COL_W - colSlot * opRows.length) / 2;
+  const colBarW = Math.min(40, colSlot * 0.55);
 
   return (
     <>
@@ -264,7 +554,7 @@ export const AdminDashboard: React.FC = () => {
           <span className="tile tile-sm">
             <Icon name="document-text" size={18} />
           </span>
-          <strong style={{ animationDelay: '0.45s' }}>{pendingQuotes.length}</strong>
+          <strong style={{ animationDelay: '0.45s' }}>{stats.quotesToPrepare}</strong>
           <span>
             <a href="#/demandes" onClick={(e) => { e.preventDefault(); navigate('admin-requests'); }}>
               Devis à préparer
@@ -276,7 +566,7 @@ export const AdminDashboard: React.FC = () => {
           <span className="tile tile-sm">
             <Icon name="bolt" size={18} />
           </span>
-          <strong style={{ animationDelay: '0.55s' }}>{activeCount}</strong>
+          <strong style={{ animationDelay: '0.55s' }}>{stats.activeMissions}</strong>
           <span>
             <a href="#/demandes" onClick={(e) => { e.preventDefault(); navigate('admin-requests'); }}>
               Missions en cours
@@ -288,7 +578,7 @@ export const AdminDashboard: React.FC = () => {
           <span className="tile tile-sm">
             <Icon name="banknotes" size={18} />
           </span>
-          <strong style={{ animationDelay: '0.65s' }}>{formatMoney(paidThisMonth || 1650)}</strong>
+          <strong style={{ animationDelay: '0.65s' }}>{formatMoney(stats.revenueMonth)}</strong>
           <span>
             <a href="#/paiements" onClick={(e) => { e.preventDefault(); navigate('admin-invoices'); }}>
               Encaissé ce mois-ci
@@ -300,7 +590,7 @@ export const AdminDashboard: React.FC = () => {
           <span className="tile tile-sm">
             <Icon name="clock" size={18} />
           </span>
-          <strong style={{ animationDelay: '0.75s' }}>{formatMoney(dueAmount)}</strong>
+          <strong style={{ animationDelay: '0.75s' }}>{formatMoney(stats.awaitingPayment)}</strong>
           <span>
             <a href="#/paiements" onClick={(e) => { e.preventDefault(); navigate('admin-invoices'); }}>
               En attente de paiement
@@ -320,7 +610,9 @@ export const AdminDashboard: React.FC = () => {
             </a>
           </div>
 
-          {pendingWork.length === 0 ? (
+          {loading ? (
+            <p className="muted">Chargement…</p>
+          ) : pendingWork.length === 0 ? (
             <div className="empty-state">
               <span className="tile tile-lg">
                 <Icon name="check-circle" size={32} />
@@ -331,8 +623,10 @@ export const AdminDashboard: React.FC = () => {
           ) : (
             <div className="request-list">
               {pendingWork.slice(0, 6).map(({ r, reasons }, rowIdx) => {
-                const s = SERVICES.find(srv => srv.id === r.serviceId) || SERVICES[0];
-                const client = users.find(u => u.id === r.userId);
+                const s = r.service || services.find(srv => srv.slug === r.serviceSlug || srv.id === r.serviceId);
+                const clientName = r.client
+                  ? (r.client.fullName || `${r.client.firstName} ${r.client.lastName}`.trim())
+                  : 'Client';
                 return (
                   <a
                     key={r.id}
@@ -344,14 +638,14 @@ export const AdminDashboard: React.FC = () => {
                       navigate('admin-request-detail', r.id);
                     }}
                   >
-                    <span className={`tile cat-${s.cat}`}>
-                      <Icon name={s.icon} size={20} />
+                    <span className={`tile cat-${s?.cat || 'demarches'}`}>
+                      <Icon name={s?.icon || 'clipboard-document-list'} size={20} />
                     </span>
 
                     <span className="request-row-main">
                       <strong>{r.title}</strong>
                       <small>
-                        {r.tracking} · {client ? `${client.firstName} ${client.lastName}` : 'Client'}
+                        {r.tracking} · {clientName}
                       </small>
                       <span className="reasons">
                         {r.urgency === 'urgent' && (
@@ -437,28 +731,13 @@ export const AdminDashboard: React.FC = () => {
       {/* Grid 3 Columns */}
       <div className="grid-3">
         {/* Demandes par univers */}
-        <section className="card kw-card" style={{ animationDelay: '0.8s' }}>
-          <h2>Demandes par univers</h2>
-          <ul className="bars">
-            {catRows.map(({ c, value }, idx) => (
-              <li
-                key={c.id}
-                className="kw-bar"
-                style={{ animationDelay: `${1 + idx * 0.1}s` }}
-                title={`${c.name} : ${value} demande${value > 1 ? 's' : ''}`}
-              >
-                <span className="bars-label">{c.short}</span>
-                <span className="bars-track">
-                  <span
-                    className="bars-fill"
-                    style={{ width: `${(value / maxCatValue) * 100}%` }}
-                  />
-                </span>
-                <span className="bars-value">{value}</span>
-              </li>
-            ))}
-          </ul>
-        </section>
+        <CategoryBreakdownCard
+          title="Demandes par univers"
+          rows={catRows}
+          defaultView="bars"
+          className="kw-card"
+          style={{ animationDelay: '0.8s' }}
+        />
 
         {/* Charge des agents */}
         <section className="card kw-card" style={{ animationDelay: '0.9s' }}>
@@ -469,10 +748,70 @@ export const AdminDashboard: React.FC = () => {
             </a>
           </div>
           <p className="muted small-text">Missions en cours par agent</p>
-          <ul className="bars bars-wide">
-            {operators.map((o, idx) => {
-              const count = requests.filter(r => r.operatorId === o.id && r.status === 'active').length;
-              return (
+
+          <div className="kw-toggle-row">
+            <button
+              type="button"
+              className="kw-toggle-btn"
+              aria-pressed={showOpChart}
+              onClick={() => setShowOpChart(v => !v)}
+            >
+              <Icon name={showOpChart ? 'squares-2x2' : 'chart-bar'} size={16} />
+              <span>{showOpChart ? 'Voir les barres' : 'Voir le graphe'}</span>
+            </button>
+          </div>
+
+          {showOpChart ? (
+            <div className="kw-chart">
+              {opRows.length === 0 ? (
+                <p className="muted kw-chart-empty">Aucun agent à représenter pour le moment.</p>
+              ) : (
+                <svg
+                  className="kw-colchart"
+                  viewBox={`0 0 ${COL_W} 190`}
+                  role="img"
+                  aria-label="Missions en cours par agent"
+                >
+                  <line x1="10" y1={COL_BASE} x2={COL_W - 10} y2={COL_BASE} stroke="currentColor" strokeOpacity="0.2" />
+                  {opRows.map(({ o, count }, idx) => {
+                    const h = (count / maxOpLoad) * COL_MAX_H;
+                    const x = colStart + idx * colSlot + (colSlot - colBarW) / 2;
+                    const cx = colStart + idx * colSlot + colSlot / 2;
+                    const color = CHART_COLORS[idx % CHART_COLORS.length];
+                    return (
+                      <g key={o.id}>
+                        <rect
+                          className="kw-col"
+                          x={x}
+                          y={COL_BASE - h}
+                          width={colBarW}
+                          height={h}
+                          rx="6"
+                          fill={color}
+                          style={{ animationDelay: `${idx * 0.12}s` }}
+                        >
+                          <title>{`${o.firstName} ${o.lastName} : ${count} en cours`}</title>
+                        </rect>
+                        <text
+                          className="kw-col-value"
+                          x={cx}
+                          y={COL_BASE - h - 6}
+                          textAnchor="middle"
+                          style={{ animationDelay: `${0.5 + idx * 0.12}s` }}
+                        >
+                          {count}
+                        </text>
+                        <text x={cx} y={COL_BASE + 16} textAnchor="middle">{o.firstName}</text>
+                        <text x={cx} y={COL_BASE + 30} textAnchor="middle" fillOpacity="0.65">{o.lastName}</text>
+                      </g>
+                    );
+                  })}
+                </svg>
+              )}
+            </div>
+          ) : (
+            <ul className="bars bars-wide">
+              {opRows.map(({ o, count }, idx) => (
                 <li
                   key={o.id}
                   className="kw-bar"
@@ -488,9 +827,9 @@ export const AdminDashboard: React.FC = () => {
                   </span>
                   <span className="bars-value">{count}</span>
                 </li>
-              );
-            })}
-          </ul>
+              ))}
+            </ul>
+          )}
         </section>
 
         {/* Activité récente (timeline) */}

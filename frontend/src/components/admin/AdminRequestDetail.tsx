@@ -1,17 +1,116 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useApp } from '../../context/AppContext';
-import { RequestStatus, DocumentType } from '../../types';
+import { RequestStatus, DocumentType, RequestItem, MessageItem, User } from '../../types';
 import { Icon } from '../common/Icon';
-import { SERVICES, CATEGORIES, STATUS_MAP, DOC_TYPE_META } from '../../data/kwaboData';
+import { STATUS_MAP, DOC_TYPE_META } from '../../data/kwaboData';
+import { api, ApiError, getFirstValidationError } from '../../services/api';
+import { mapMessage, mapRequest, mapUser } from '../../services/mappers';
 
 export const AdminRequestDetail: React.FC = () => {
-  const { 
-    activeRequestId, requests, users, documents, messages, invoices, reviews,
-    navigate, updateRequestStatus, assignOperator, setQuote, 
-    addDocument, sendMessage, addNote, openPhotoModal, addToast, role
+  const {
+    activeRequestId,
+    services,
+    navigate,
+    setActiveClientId,
+    openPhotoModal,
+    downloadDocument,
+    addToast,
+    confirm,
+    role,
+    refreshCounters,
   } = useApp();
 
-  const r = requests.find(req => req.id === activeRequestId);
+  const [r, setR] = useState<RequestItem | null>(null);
+  const [reqMsgs, setReqMsgs] = useState<MessageItem[]>([]);
+  const [operators, setOperators] = useState<User[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  // Form states
+  const [selectedStatus, setSelectedStatus] = useState<RequestStatus>('pending');
+  const [selectedOperatorId, setSelectedOperatorId] = useState('');
+  const [quoteAmount, setQuoteAmount] = useState<number>(150);
+  const [quoteLabel, setQuoteLabel] = useState('');
+  const [newDocType, setNewDocType] = useState<DocumentType>('report');
+  const [newDocName, setNewDocName] = useState('');
+  const [newDocFile, setNewDocFile] = useState<File | null>(null);
+  const docFileInputRef = useRef<HTMLInputElement>(null);
+
+  const [newNote, setNewNote] = useState('');
+  const [chatText, setChatText] = useState('');
+  const [chatFile, setChatFile] = useState<File | null>(null);
+
+  const [savingStatus, setSavingStatus] = useState(false);
+  const [savingOperator, setSavingOperator] = useState(false);
+  const [savingQuote, setSavingQuote] = useState(false);
+  const [uploadingDoc, setUploadingDoc] = useState(false);
+  const [savingNote, setSavingNote] = useState(false);
+  const [sendingChat, setSendingChat] = useState(false);
+
+  const loadData = useCallback(async () => {
+    if (!activeRequestId) {
+      setR(null);
+      setLoading(false);
+      return;
+    }
+    try {
+      const [reqRes, msgRes] = await Promise.all([
+        api<any>(`/admin/requests/${activeRequestId}`),
+        role !== 'OPERATOR'
+          ? api<any>(`/requests/${activeRequestId}/messages`).catch(() => ({ data: [] }))
+          : Promise.resolve({ data: [] }),
+      ]);
+
+      const mappedReq = mapRequest(reqRes?.data ?? reqRes);
+      setR(mappedReq);
+      setSelectedStatus(mappedReq.status);
+      setSelectedOperatorId(mappedReq.operatorId || '');
+      setQuoteAmount(mappedReq.quote?.amount || 150);
+      setQuoteLabel(mappedReq.quote?.label || mappedReq.service?.name || mappedReq.title);
+
+      if (role !== 'OPERATOR') {
+        const rawMsgs = Array.isArray(msgRes?.data) ? msgRes.data : Array.isArray(msgRes) ? msgRes : [];
+        setReqMsgs(rawMsgs.map((m: any) => mapMessage(m, mappedReq.id)));
+        if ((mappedReq.unreadMessages ?? 0) > 0) {
+          await api(`/requests/${activeRequestId}/messages/read`, { method: 'POST' }).catch(() => {});
+          await refreshCounters();
+        }
+      }
+    } catch {
+      setR(null);
+    } finally {
+      setLoading(false);
+    }
+  }, [activeRequestId, role, refreshCounters]);
+
+  useEffect(() => {
+    setLoading(true);
+    loadData();
+  }, [loadData]);
+
+  useEffect(() => {
+    if (role !== 'ADMIN') return;
+    let cancelled = false;
+    api<any>('/admin/team')
+      .then((res) => {
+        if (cancelled) return;
+        const raw = Array.isArray(res?.data) ? res.data : Array.isArray(res) ? res : [];
+        setOperators(raw.map(mapUser).filter((u: User) => u.role === 'OPERATOR'));
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [role]);
+
+  if (loading) {
+    return (
+      <section className="card">
+        <div className="empty-state">
+          <p className="muted">Chargement de la demande…</p>
+        </div>
+      </section>
+    );
+  }
 
   if (!r) {
     return (
@@ -36,25 +135,12 @@ export const AdminRequestDetail: React.FC = () => {
     );
   }
 
-  const client = users.find(u => u.id === r.userId);
-  const operator = users.find(u => u.id === r.operatorId);
-  const operators = users.filter(u => u.role === 'OPERATOR');
-  const service = SERVICES.find(s => s.id === r.serviceId) || SERVICES[0];
-  const reqDocs = documents.filter(d => d.requestId === r.id);
-  const reqMsgs = messages.filter(m => m.requestId === r.id);
-  const reqInvoices = invoices.filter(i => i.requestId === r.id);
-  const review = reviews.find(a => a.requestId === r.id);
-  const dueInvoice = reqInvoices.find(i => i.status === 'due');
-
-  // Form states
-  const [selectedStatus, setSelectedStatus] = useState<RequestStatus>(r.status);
-  const [selectedOperatorId, setSelectedOperatorId] = useState(r.operatorId || '');
-  const [quoteAmount, setQuoteAmount] = useState(r.quote?.amount || 150);
-  const [quoteLabel, setQuoteLabel] = useState(r.quote?.label || service.name);
-  const [newDocType, setNewDocType] = useState<DocumentType>('report');
-  const [newDocName, setNewDocName] = useState('');
-  const [newNote, setNewNote] = useState('');
-  const [chatText, setChatText] = useState('');
+  const client = r.client;
+  const service = r.service || services.find(s => s.slug === r.serviceSlug || s.id === r.serviceId);
+  const reqDocs = r.documents || [];
+  const reqInvoices = r.invoices || [];
+  const review = r.review;
+  const dueInvoice = r.invoiceDue || reqInvoices.find(i => i.status === 'due');
 
   const formatMoney = (n: number) => {
     return new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 }).format(n);
@@ -70,74 +156,189 @@ export const AdminRequestDetail: React.FC = () => {
     return `${d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })} à ${d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}`;
   };
 
-  // Status steps logic from shared.js
   const statusOrder: RequestStatus[] = ['pending', 'active', 'done'];
   const reachedIndex = statusOrder.indexOf(r.status);
 
   // Form Handlers
-  const handleStatusSubmit = (e: React.FormEvent) => {
+  const handleStatusSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (selectedStatus === r.status) return;
+    if (selectedStatus === r.status || savingStatus) return;
     if (selectedStatus === 'cancelled') {
-      if (!window.confirm('Annuler cette demande ? Le client sera prévenu et son devis en attente sera annulé.')) return;
+      const ok = await confirm({
+        title: 'Annuler cette demande ?',
+        message: 'Le client sera prévenu par notification et son devis en attente sera annulé.',
+        confirmLabel: 'Annuler la demande',
+        cancelLabel: 'Conserver',
+        variant: 'danger',
+      });
+      if (!ok) return;
     }
-    updateRequestStatus(r.id, selectedStatus);
-    addToast(`Statut mis à jour : ${STATUS_MAP[selectedStatus].label}. Le client est prévenu.`);
+    setSavingStatus(true);
+    try {
+      await api(`/admin/requests/${r.id}/status`, {
+        method: 'PATCH',
+        body: { status: selectedStatus },
+      });
+      await Promise.all([loadData(), refreshCounters()]);
+      addToast(`Statut mis à jour : ${STATUS_MAP[selectedStatus].label}. Le client est prévenu.`, 'success');
+    } catch (err) {
+      addToast(
+        getFirstValidationError(err) || (err instanceof ApiError ? err.message : 'Erreur lors de la mise à jour du statut.'),
+        'error'
+      );
+    } finally {
+      setSavingStatus(false);
+    }
   };
 
-  const handleOperatorSubmit = (e: React.FormEvent) => {
+  const handleOperatorSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    assignOperator(r.id, selectedOperatorId);
-    const op = users.find(u => u.id === selectedOperatorId);
-    addToast(selectedOperatorId ? `Attribuée à ${op ? op.firstName + ' ' + op.lastName : 'l\'agent'}.` : 'Attribution retirée.');
+    if (savingOperator) return;
+    setSavingOperator(true);
+    try {
+      const payloadId = selectedOperatorId
+        ? (/^\d+$/.test(selectedOperatorId) ? Number(selectedOperatorId) : selectedOperatorId)
+        : null;
+      await api(`/admin/requests/${r.id}/assign`, {
+        method: 'PATCH',
+        body: { operator_id: payloadId },
+      });
+      const op = operators.find(u => u.id === selectedOperatorId);
+      await loadData();
+      addToast(selectedOperatorId ? `Attribuée à ${op ? `${op.firstName} ${op.lastName}` : "l'agent"}.` : 'Attribution retirée.', 'success');
+    } catch (err) {
+      addToast(
+        getFirstValidationError(err) || (err instanceof ApiError ? err.message : "Erreur d'attribution."),
+        'error'
+      );
+    } finally {
+      setSavingOperator(false);
+    }
   };
 
-  const handleQuoteSubmit = (e: React.FormEvent) => {
+  const handleQuoteSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (Number(quoteAmount) <= 0 || !quoteLabel.trim()) {
-      addToast('Veuillez renseigner un montant et un objet valides.');
+      addToast('Veuillez renseigner un montant et un objet valides.', 'error');
       return;
     }
-    setQuote(r.id, Number(quoteAmount), quoteLabel.trim());
-    addToast('Devis envoyé au client.');
+    setSavingQuote(true);
+    try {
+      await api(`/admin/requests/${r.id}/quote`, {
+        method: 'POST',
+        body: {
+          amount: Number(quoteAmount),
+          label: quoteLabel.trim(),
+        },
+      });
+      await Promise.all([loadData(), refreshCounters()]);
+      addToast('Devis envoyé au client.', 'success');
+    } catch (err) {
+      addToast(
+        getFirstValidationError(err) || (err instanceof ApiError ? err.message : "Erreur lors de l'envoi du devis."),
+        'error'
+      );
+    } finally {
+      setSavingQuote(false);
+    }
   };
 
-  const handleDocSubmit = (e: React.FormEvent) => {
+  const handleDocSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newDocName.trim()) {
-      addToast('Donnez un nom au document.');
+    if (!newDocFile) {
+      addToast('Sélectionnez un fichier à déposer.', 'error');
       return;
     }
-    addDocument({
-      requestId: r.id,
-      name: newDocName.trim(),
-      type: newDocType,
-      photoName: 'chantier-terrain',
-    });
-    setNewDocName('');
-    addToast('Document déposé. Il est visible par le client.');
+    setUploadingDoc(true);
+    try {
+      const fd = new FormData();
+      fd.append('type', newDocType);
+      fd.append('file', newDocFile);
+      if (newDocName.trim()) {
+        fd.append('name', newDocName.trim());
+      }
+
+      await api(`/admin/requests/${r.id}/documents`, {
+        method: 'POST',
+        body: fd,
+      });
+      setNewDocName('');
+      setNewDocFile(null);
+      if (docFileInputRef.current) docFileInputRef.current.value = '';
+      await loadData();
+      addToast('Document déposé. Il est visible par le client.', 'success');
+    } catch (err) {
+      addToast(
+        getFirstValidationError(err) || (err instanceof ApiError ? err.message : 'Erreur lors du dépôt du document.'),
+        'error'
+      );
+    } finally {
+      setUploadingDoc(false);
+    }
   };
 
-  const handleNoteSubmit = (e: React.FormEvent) => {
+  const handleNoteSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newNote.trim()) return;
-    addNote(r.id, newNote.trim());
-    setNewNote('');
-    addToast('Note enregistrée.');
+    if (!newNote.trim() || savingNote) return;
+    setSavingNote(true);
+    try {
+      await api(`/admin/requests/${r.id}/notes`, {
+        method: 'POST',
+        body: { text: newNote.trim() },
+      });
+      setNewNote('');
+      await loadData();
+      addToast('Note enregistrée.', 'success');
+    } catch (err) {
+      addToast(
+        getFirstValidationError(err) || (err instanceof ApiError ? err.message : "Impossible d'ajouter la note."),
+        'error'
+      );
+    } finally {
+      setSavingNote(false);
+    }
   };
 
-  const handleSendChat = (e: React.FormEvent) => {
+  const handleSendChat = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!chatText.trim()) return;
-    sendMessage(r.id, chatText.trim());
-    setChatText('');
+    if ((!chatText.trim() && !chatFile) || sendingChat) return;
+    setSendingChat(true);
+    try {
+      let body: any;
+      if (chatFile) {
+        const fd = new FormData();
+        if (chatText.trim()) fd.append('text', chatText.trim());
+        fd.append('attachment', chatFile);
+        body = fd;
+      } else {
+        body = { text: chatText.trim() };
+      }
+
+      await api(`/requests/${r.id}/messages`, {
+        method: 'POST',
+        body,
+      });
+      setChatText('');
+      setChatFile(null);
+      const msgRes = await api<any>(`/requests/${r.id}/messages`);
+      const rawMsgs = Array.isArray(msgRes?.data) ? msgRes.data : [];
+      setReqMsgs(rawMsgs.map((m: any) => mapMessage(m, r.id)));
+      addToast('Message envoyé.', 'success');
+    } catch (err) {
+      addToast(
+        getFirstValidationError(err) || (err instanceof ApiError ? err.message : "Impossible d'envoyer le message."),
+        'error'
+      );
+    } finally {
+      setSendingChat(false);
+    }
   };
 
   return (
     <>
-      <a 
-        className="breadcrumb cursor-pointer" 
-        href="#/demandes" 
+      <a
+        className="breadcrumb cursor-pointer"
+        href="#/demandes"
         onClick={(e) => {
           e.preventDefault();
           navigate(role === 'OPERATOR' ? 'operator-missions' : 'admin-requests');
@@ -192,7 +393,7 @@ export const AdminRequestDetail: React.FC = () => {
             <dl className="info-list">
               <div>
                 <dt>Service</dt>
-                <dd><strong>{service.name}</strong></dd>
+                <dd><strong>{service?.name || r.title}</strong></dd>
               </div>
               <div>
                 <dt>Ville</dt>
@@ -224,7 +425,7 @@ export const AdminRequestDetail: React.FC = () => {
               {r.details && Object.entries(r.details).map(([k, v]) => (
                 <div key={k}>
                   <dt className="capitalize">{k}</dt>
-                  <dd>{v}</dd>
+                  <dd>{String(v)}</dd>
                 </div>
               ))}
             </dl>
@@ -237,7 +438,7 @@ export const AdminRequestDetail: React.FC = () => {
             )}
           </section>
 
-          {/* Messages avec le client (masqué pour l'agent de terrain qui utilise l'onglet dédié Messagerie) */}
+          {/* Messages avec le client */}
           {role !== 'OPERATOR' && (
             <section className="card">
               <h2>Messages avec le client</h2>
@@ -248,6 +449,7 @@ export const AdminRequestDetail: React.FC = () => {
                   ) : (
                     reqMsgs.map(m => {
                       const isMine = m.from === 'team';
+                      const attUrl = `/messages/${m.id}/attachment`;
                       return (
                         <div
                           key={m.id}
@@ -256,10 +458,14 @@ export const AdminRequestDetail: React.FC = () => {
                           <span className="bubble-author">{m.author}</span>
                           {m.text && <p>{m.text}</p>}
                           {m.attachment && (
-                            <span className="bubble-file">
+                            <button
+                              type="button"
+                              className="bubble-file border-0 cursor-pointer"
+                              onClick={() => downloadDocument(attUrl, m.attachment!.name)}
+                            >
                               <Icon name="paper-clip" size={16} />
-                              {m.attachment}
-                            </span>
+                              <span>{m.attachment.name}</span>
+                            </button>
                           )}
                           <time dateTime={m.at}>{formatDateTime(m.at)}</time>
                         </div>
@@ -272,18 +478,31 @@ export const AdminRequestDetail: React.FC = () => {
                   <p className="notice">Cette demande est annulée : la discussion est fermée.</p>
                 ) : (
                   <form className="thread-form" onSubmit={handleSendChat}>
+                    {chatFile && (
+                      <p className="attachment-name flex items-center gap-2">
+                        <span>Pièce jointe : {chatFile.name}</span>
+                        <button
+                          type="button"
+                          className="text-xs underline bg-transparent border-0 cursor-pointer"
+                          onClick={() => setChatFile(null)}
+                        >
+                          Retirer
+                        </button>
+                      </p>
+                    )}
                     <div className="thread-form-row">
-                      <label className="icon-btn attach" title="Joindre un fichier">
+                      <label className="icon-btn attach" title="Joindre un fichier" style={{ cursor: 'pointer' }}>
                         <Icon name="paper-clip" size={18} />
                         <span className="sr-only">Joindre un fichier</span>
-                        <input 
-                          className="sr-only" 
-                          type="file" 
+                        <input
+                          className="sr-only"
+                          type="file"
+                          accept=".pdf,.jpg,.jpeg,.png"
                           onChange={(e) => {
                             if (e.target.files?.[0]) {
-                              addToast(`Fichier sélectionné : ${e.target.files[0].name}`);
+                              setChatFile(e.target.files[0]);
                             }
-                          }} 
+                          }}
                         />
                       </label>
                       <label className="sr-only" htmlFor="message-text">Votre message</label>
@@ -300,7 +519,12 @@ export const AdminRequestDetail: React.FC = () => {
                           }
                         }}
                       />
-                      <button className="btn btn-primary btn-icon" type="submit" aria-label="Envoyer">
+                      <button
+                        className="btn btn-primary btn-icon"
+                        type="submit"
+                        aria-label="Envoyer"
+                        disabled={sendingChat}
+                      >
                         <Icon name="paper-airplane" size={18} />
                       </button>
                     </div>
@@ -318,7 +542,8 @@ export const AdminRequestDetail: React.FC = () => {
             ) : (
               <ul className="doc-list">
                 {reqDocs.map(d => {
-                  const meta = DOC_TYPE_META[d.type];
+                  const meta = DOC_TYPE_META[d.type] || DOC_TYPE_META.report;
+                  const downloadPath = `/documents/${d.id}/download`;
                   return (
                     <li key={d.id} className="doc-item">
                       <span className="tile tile-sm">
@@ -333,7 +558,7 @@ export const AdminRequestDetail: React.FC = () => {
                         type="button"
                         aria-label={`Voir ${d.name}`}
                         title="Voir"
-                        onClick={() => openPhotoModal(d.name, d.photoName ? `/assets/photos/${d.photoName}.jpg` : service.photo)}
+                        onClick={() => openPhotoModal(downloadPath, d.name, downloadPath, true)}
                       >
                         <Icon name="eye" size={18} />
                       </button>
@@ -342,7 +567,7 @@ export const AdminRequestDetail: React.FC = () => {
                         type="button"
                         aria-label={`Télécharger ${d.name}`}
                         title="Télécharger"
-                        onClick={() => addToast(`Téléchargement de ${d.name}...`)}
+                        onClick={() => downloadDocument(downloadPath, d.name)}
                       >
                         <Icon name="arrow-down-tray" size={18} />
                       </button>
@@ -370,7 +595,7 @@ export const AdminRequestDetail: React.FC = () => {
                 </div>
 
                 <div className="field">
-                  <label htmlFor="docName">Nom du document</label>
+                  <label htmlFor="docName">Nom du document (optionnel)</label>
                   <input
                     id="docName"
                     type="text"
@@ -380,9 +605,25 @@ export const AdminRequestDetail: React.FC = () => {
                   />
                 </div>
               </div>
-              <button className="btn btn-ghost" type="submit">
+              <div className="field">
+                <label htmlFor="docFile">Fichier (PDF, image ou vidéo)</label>
+                <input
+                  ref={docFileInputRef}
+                  id="docFile"
+                  type="file"
+                  required
+                  onChange={(e) => {
+                    const f = e.target.files?.[0] || null;
+                    setNewDocFile(f);
+                    if (f && !newDocName.trim()) {
+                      setNewDocName(f.name);
+                    }
+                  }}
+                />
+              </div>
+              <button className="btn btn-ghost" type="submit" disabled={uploadingDoc}>
                 <Icon name="plus" size={18} />
-                <span>Déposer</span>
+                <span>{uploadingDoc ? 'Envoi…' : 'Déposer'}</span>
               </button>
             </form>
           </section>
@@ -413,8 +654,8 @@ export const AdminRequestDetail: React.FC = () => {
                   onChange={(e) => setNewNote(e.target.value)}
                 />
               </div>
-              <button className="btn btn-ghost btn-sm" type="submit">
-                Enregistrer la note
+              <button className="btn btn-ghost btn-sm" type="submit" disabled={savingNote}>
+                {savingNote ? 'Enregistrement…' : 'Enregistrer la note'}
               </button>
             </form>
           </section>
@@ -428,15 +669,24 @@ export const AdminRequestDetail: React.FC = () => {
               <div className="card-head">
                 <h2>Client</h2>
                 {role === 'ADMIN' && (
-                  <a href="#/clients" onClick={(e) => { e.preventDefault(); navigate('admin-clients'); }}>
+                  <a
+                    href="#/clients"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      setActiveClientId(client.id);
+                      navigate('admin-clients');
+                    }}
+                  >
                     Fiche
                   </a>
                 )}
               </div>
               <div className="client-mini">
-                <span className="avatar">{client.firstName[0]}{client.lastName[0]}</span>
+                <span className="avatar">
+                  {`${client.firstName?.[0] || ''}${client.lastName?.[0] || ''}`.toUpperCase() || 'CL'}
+                </span>
                 <span>
-                  <strong>{client.firstName} {client.lastName}</strong>
+                  <strong>{client.fullName || `${client.firstName} ${client.lastName}`}</strong>
                   <small>{client.country}</small>
                 </span>
               </div>
@@ -445,10 +695,12 @@ export const AdminRequestDetail: React.FC = () => {
                   <Icon name="envelope" size={18} />
                   <a href={`mailto:${client.email}`}>{client.email}</a>
                 </li>
-                <li>
-                  <Icon name="phone" size={18} />
-                  <a href={`tel:${client.phone.replace(/\s/g, '')}`}>{client.phone}</a>
-                </li>
+                {client.phone && (
+                  <li>
+                    <Icon name="phone" size={18} />
+                    <a href={`tel:${client.phone.replace(/\s/g, '')}`}>{client.phone}</a>
+                  </li>
+                )}
               </ul>
             </section>
           )}
@@ -468,8 +720,8 @@ export const AdminRequestDetail: React.FC = () => {
                 ))}
               </select>
             </div>
-            <button className="btn btn-primary btn-block" type="submit">
-              Mettre à jour
+            <button className="btn btn-primary btn-block" type="submit" disabled={savingStatus}>
+              {savingStatus ? 'Mise à jour…' : 'Mettre à jour'}
             </button>
           </form>
 
@@ -492,8 +744,8 @@ export const AdminRequestDetail: React.FC = () => {
                     ))}
                   </select>
                 </div>
-                <button className="btn btn-ghost btn-block" type="submit">
-                  Attribuer
+                <button className="btn btn-ghost btn-block" type="submit" disabled={savingOperator}>
+                  {savingOperator ? 'Attribution…' : 'Attribuer'}
                 </button>
               </form>
 
@@ -514,6 +766,7 @@ export const AdminRequestDetail: React.FC = () => {
                     id="quoteAmount"
                     type="number"
                     min="1"
+                    step="0.01"
                     required
                     value={quoteAmount}
                     onChange={(e) => setQuoteAmount(Number(e.target.value))}
@@ -529,8 +782,8 @@ export const AdminRequestDetail: React.FC = () => {
                     onChange={(e) => setQuoteLabel(e.target.value)}
                   />
                 </div>
-                <button className="btn btn-gold btn-block" type="submit">
-                  {r.quote ? 'Envoyer un nouveau devis' : 'Envoyer le devis'}
+                <button className="btn btn-gold btn-block" type="submit" disabled={savingQuote}>
+                  {savingQuote ? 'Envoi…' : (r.quote ? 'Envoyer un nouveau devis' : 'Envoyer le devis')}
                 </button>
               </form>
 
@@ -544,13 +797,13 @@ export const AdminRequestDetail: React.FC = () => {
                         <button
                           className="link-btn"
                           type="button"
-                          onClick={() => addToast(`Facture ${i.id} : ${formatMoney(i.amount)} (${i.label})`)}
+                          onClick={() => addToast(`Facture ${i.number || i.id} : ${formatMoney(i.amount)} (${i.label})`)}
                         >
-                          {i.id}
+                          {i.number || i.id}
                         </button>
                         <strong>{formatMoney(i.amount)}</strong>
                         <span className={`badge badge-${i.status === 'paid' ? 'green' : i.status === 'due' ? 'gold' : 'neutral'}`}>
-                          {i.status === 'paid' ? 'Payée' : i.status === 'due' ? 'À payer' : 'Remboursée'}
+                          {i.status === 'paid' ? 'Payée' : i.status === 'due' ? 'À payer' : i.status === 'refunded' ? 'Remboursée' : 'Annulée'}
                         </span>
                       </li>
                     ))}
@@ -561,12 +814,12 @@ export const AdminRequestDetail: React.FC = () => {
           )}
 
           {/* Avis du client si présent */}
-          {r.rating && (
+          {(r.rating || review) && (
             <section className="card">
               <h2>Avis du client</h2>
               <p className="rating-readout flex items-center gap-1.5 font-bold">
                 <Icon name="star" size={20} className="text-amber-500 fill-amber-400" />
-                <span>{r.rating} sur 5</span>
+                <span>{review?.rating ?? r.rating} sur 5</span>
               </p>
               {review?.comment && <p className="muted mt-2">{review.comment}</p>}
             </section>

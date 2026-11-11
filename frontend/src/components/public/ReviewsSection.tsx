@@ -1,10 +1,9 @@
 import React from 'react';
-import { useApp } from '../../context/AppContext';
+import { SEED_REVIEWS } from '../../data/kwaboData';
 import { Star, CheckCircle2, Quote } from 'lucide-react';
 
 export const ReviewsSection: React.FC = () => {
-  const { reviews } = useApp();
-  const publishedReviews = reviews.filter(r => r.status === 'published');
+  const publishedReviews = SEED_REVIEWS.filter(r => r.status === 'published');
 
   return (
     <section className="py-20 bg-[#f9f7f4] border-b border-[#e0e8e4]">

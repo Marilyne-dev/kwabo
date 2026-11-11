@@ -1,80 +1,152 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { useApp } from '../../context/AppContext';
-import { X, Download, ShieldCheck, Video, Eye } from 'lucide-react';
+import { fetchAuthenticatedBlob } from '../../services/api';
+import { Icon } from './Icon';
 
 export const PhotoModal: React.FC = () => {
-  const { activePhotoModal, closePhotoModal, addToast } = useApp();
+  const { activePhotoModal, closePhotoModal, downloadDocument, addToast } = useApp();
+  const [blobUrl, setBlobUrl] = useState<string | null>(null);
+  const [contentType, setContentType] = useState<string>('');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const handleEsc = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') closePhotoModal();
+    };
+    window.addEventListener('keydown', handleEsc);
+    return () => window.removeEventListener('keydown', handleEsc);
+  }, [closePhotoModal]);
+
+  useEffect(() => {
+    let active = true;
+    let createdUrl: string | null = null;
+
+    if (!activePhotoModal) {
+      setBlobUrl(null);
+      setContentType('');
+      setLoading(false);
+      setError(null);
+      return;
+    }
+
+    if (!activePhotoModal.requiresAuth) {
+      setBlobUrl(activePhotoModal.url);
+      setContentType('image/*');
+      setLoading(false);
+      setError(null);
+      return;
+    }
+
+    setLoading(true);
+    setError(null);
+    setBlobUrl(null);
+
+    fetchAuthenticatedBlob(activePhotoModal.url)
+      .then(({ blob, contentType: mime }) => {
+        if (!active) return;
+        createdUrl = URL.createObjectURL(blob);
+        setBlobUrl(createdUrl);
+        setContentType(mime || blob.type || '');
+      })
+      .catch(() => {
+        if (!active) return;
+        setError('Impossible de charger ce fichier sécurisé.');
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+
+    return () => {
+      active = false;
+      if (createdUrl) {
+        URL.revokeObjectURL(createdUrl);
+      }
+    };
+  }, [activePhotoModal]);
 
   if (!activePhotoModal) return null;
 
-  const isVideo = activePhotoModal.url.includes('.mp4') || activePhotoModal.title.toLowerCase().includes('vidéo');
+  const isImage = !contentType || contentType.startsWith('image/');
+  const isPdf = contentType.includes('pdf');
 
-  const handleDownload = () => {
-    addToast(`Téléchargement de « ${activePhotoModal.title} » démarré.`);
+  const handleDownload = async () => {
+    const targetUrl = activePhotoModal.downloadUrl || activePhotoModal.url;
+    if (activePhotoModal.requiresAuth) {
+      await downloadDocument(targetUrl, activePhotoModal.title || 'document');
+      return;
+    }
+    try {
+      const a = document.createElement('a');
+      a.href = targetUrl;
+      a.download = activePhotoModal.title || 'document';
+      a.target = '_blank';
+      a.rel = 'noopener noreferrer';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+    } catch {
+      addToast('Téléchargement lancé.', 'info');
+    }
   };
 
   return (
-    <div 
-      onClick={closePhotoModal}
-      className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4"
+    <div
+      className="modal-backdrop open"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) closePhotoModal();
+      }}
     >
-      <div 
-        onClick={(e) => e.stopPropagation()}
-        className="relative max-w-4xl w-full bg-neutral-900 rounded-3xl overflow-hidden shadow-2xl border border-white/10"
-      >
-        {/* Header bar */}
-        <div className="p-4 bg-black/40 backdrop-blur-md flex items-center justify-between text-white border-b border-white/10">
-          <div className="flex items-center gap-2">
-            <span className="p-1.5 rounded-lg bg-[#1a5c3a] text-white">
-              {isVideo ? <Video className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-            </span>
-            <div>
-              <h3 className="font-semibold text-xs sm:text-sm truncate max-w-md">
-                {activePhotoModal.title}
-              </h3>
-              <span className="text-[10px] text-neutral-400">
-                Livrable certifié et géolocalisé KWABO Bénin
-              </span>
+      <div className="modal modal-photo" role="dialog" aria-modal="true">
+        <div className="modal-head">
+          <h3>{activePhotoModal.title}</h3>
+          <button
+            className="icon-btn"
+            aria-label="Fermer"
+            onClick={closePhotoModal}
+          >
+            <Icon name="x" size={18} />
+          </button>
+        </div>
+        <div className="modal-body" style={{ textAlign: 'center', padding: 12 }}>
+          {loading ? (
+            <div style={{ padding: '48px 16px' }}>
+              <div className="w-8 h-8 rounded-full border-4 border-[#e2ddd5] border-t-[#1d3a2f] animate-spin mx-auto mb-3" />
+              <p className="muted">Chargement sécurisé du fichier…</p>
             </div>
-          </div>
-
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={handleDownload}
-              className="p-2 rounded-full bg-white/10 hover:bg-white/20 text-white transition text-xs font-semibold flex items-center gap-1.5"
-              title="Télécharger"
-            >
-              <Download className="w-4 h-4" />
-              <span className="hidden sm:inline">Télécharger</span>
-            </button>
-            <button
-              type="button"
-              onClick={closePhotoModal}
-              className="p-2 rounded-full bg-white/10 hover:bg-white/20 text-white transition"
-              aria-label="Fermer"
-            >
-              <X className="w-5 h-5" />
-            </button>
-          </div>
+          ) : error ? (
+            <div style={{ padding: '32px 16px' }}>
+              <Icon name="alert-circle" size={32} />
+              <p style={{ marginTop: 8 }}>{error}</p>
+            </div>
+          ) : blobUrl && isImage ? (
+            <img
+              src={blobUrl}
+              alt={activePhotoModal.title}
+              style={{ maxWidth: '100%', maxHeight: '72vh', borderRadius: 10, objectFit: 'contain', margin: '0 auto' }}
+            />
+          ) : blobUrl && isPdf ? (
+            <iframe
+              src={blobUrl}
+              title={activePhotoModal.title}
+              style={{ width: '100%', height: '70vh', border: 'none', borderRadius: 10 }}
+            />
+          ) : (
+            <div style={{ padding: '32px 16px' }}>
+              <Icon name="file-text" size={40} />
+              <p style={{ marginTop: 12 }}>
+                Aperçu direct indisponible pour ce format. Utilisez le bouton ci-dessous pour le télécharger.
+              </p>
+            </div>
+          )}
         </div>
-
-        {/* Media Container */}
-        <div className="relative bg-black flex items-center justify-center max-h-[75vh] overflow-hidden">
-          <img
-            src={activePhotoModal.url}
-            alt={activePhotoModal.title}
-            className="w-full h-full object-contain max-h-[70vh]"
-          />
-        </div>
-
-        {/* Footer info */}
-        <div className="p-3 bg-neutral-950 text-white/60 text-[11px] flex items-center justify-between">
-          <span className="flex items-center gap-1.5 text-emerald-400">
-            <ShieldCheck className="w-4 h-4" />
-            Horodatage certifié · Visite terrain effectuée
-          </span>
-          <span>Résolution originale HD</span>
+        <div className="modal-foot">
+          <button type="button" className="btn btn-primary" onClick={handleDownload}>
+            <Icon name="download" size={15} /> Télécharger
+          </button>
+          <button type="button" className="btn btn-outline" onClick={closePhotoModal}>
+            Fermer
+          </button>
         </div>
       </div>
     </div>

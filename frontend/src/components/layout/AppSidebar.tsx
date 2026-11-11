@@ -126,6 +126,14 @@ const SIDEBAR_ANIMATIONS = `
 .sidebar .side-user:hover .avatar {
   transform: scale(1.1) rotate(6deg);
 }
+.sidebar .side-logout {
+  color: #fca5a5;
+  background: rgba(239, 68, 68, 0.1);
+}
+.sidebar .side-logout:hover {
+  background: rgba(239, 68, 68, 0.2);
+  color: #fecaca;
+}
 .sidebar .side-logout:hover svg {
   transform: translateX(4px);
 }
@@ -147,30 +155,13 @@ const SIDEBAR_ANIMATIONS = `
 `;
 
 export const AppSidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
-  const { 
-    role, currentUser, currentView, navigate, logout, 
-    messages, invoices, reviews, requests 
+  const {
+    role, currentUser, currentView, counters, navigate, logout
   } = useApp();
 
-  const visibleRequestIds = role === 'USER'
-    ? requests.filter(r => r.userId === currentUser?.id).map(r => r.id)
-    : role === 'OPERATOR'
-    ? requests.filter(r => r.operatorId === currentUser?.id).map(r => r.id)
-    : requests.map(r => r.id);
-
-  const unreadCount = messages.filter(
-    m => visibleRequestIds.includes(m.requestId) &&
-         (role === 'USER' ? m.from === 'team' : m.from === 'client') &&
-         !m.read
-  ).length;
-
-  const assignedMissionsCount = requests.filter(r => r.operatorId === currentUser?.id).length;
-
-  const dueInvoicesCount = invoices.filter(
-    i => (role === 'USER' ? i.userId === currentUser?.id : true) && i.status === 'due'
-  ).length;
-
-  const pendingReviewsCount = reviews.filter(r => r.status === 'pending').length;
+  const unreadCount = counters.unreadMessages;
+  const dueInvoicesCount = counters.dueInvoices;
+  const pendingReviewsCount = counters.pendingReviews;
 
   // Admin navigation as defined in admin.js
   const adminNav: NavSection[] = [
@@ -194,14 +185,14 @@ export const AppSidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
   // Operator navigation as defined in admin.js
   const operatorNav: NavSection[] = [
     { id: 'operator-dashboard', label: 'Mes missions', icon: 'squares-2x2', exact: true },
-    { id: 'operator-missions', label: 'Demandes attribuées', icon: 'clipboard-document-list', badge: assignedMissionsCount || undefined },
+    { id: 'operator-missions', label: 'Demandes attribuées', icon: 'clipboard-document-list' },
     { id: 'admin-messages', label: 'Messagerie', icon: 'chat-bubble-left-right', badge: unreadCount || undefined },
   ];
 
   // Client navigation as defined in client.js
   const clientNav: NavSection[] = [
     { id: 'client-dashboard', label: 'Tableau de bord', icon: 'squares-2x2', exact: true },
-    { id: 'client-requests', label: 'Mes demandes', icon: 'clipboard-document-list', badge: requests.filter(r => r.userId === currentUser?.id).length },
+    { id: 'client-requests', label: 'Mes demandes', icon: 'clipboard-document-list' },
     { id: 'client-new-request', label: 'Nouvelle demande', icon: 'plus-circle' },
     { id: 'client-documents', label: 'Mes documents', icon: 'folder' },
     { id: 'client-messages', label: 'Messagerie', icon: 'chat-bubble-left-right', badge: unreadCount || undefined },
@@ -212,8 +203,8 @@ export const AppSidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
 
   const navItems = role === 'ADMIN' ? adminNav : role === 'OPERATOR' ? operatorNav : clientNav;
 
-  const initials = currentUser 
-    ? `${currentUser.firstName[0]}${currentUser.lastName[0]}`.toUpperCase()
+  const initials = currentUser
+    ? `${currentUser.firstName?.[0] || ''}${currentUser.lastName?.[0] || ''}`.toUpperCase() || 'KW'
     : 'KW';
 
   return (
@@ -323,32 +314,6 @@ export const AppSidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
             <Icon name="arrow-right-on-rectangle" size={20} />
             <span>Se déconnecter</span>
           </button>
-
-          {role === 'USER' && (
-            <p className="side-legal">
-              <a
-                href="#/confidentialite"
-                onClick={(e) => {
-                  e.preventDefault();
-                  navigate('privacy');
-                  onClose();
-                }}
-              >
-                Confidentialité
-              </a>
-              {' · '}
-              <a
-                href="#/cgu"
-                onClick={(e) => {
-                  e.preventDefault();
-                  navigate('cgu');
-                  onClose();
-                }}
-              >
-                CGU
-              </a>
-            </p>
-          )}
         </div>
       </aside>
 

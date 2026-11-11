@@ -1,53 +1,117 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useApp } from '../../context/AppContext';
 import { X, CheckCircle2, ShieldCheck, ArrowRight, Video, Calendar, MapPin } from 'lucide-react';
 import { CITIES } from '../../data/kwaboData';
+import { createServiceRequest } from '../../services/requests';
+import { fetchServiceBySlug } from '../../services/catalog';
+import { ApiError, getFirstValidationError } from '../../services/api';
+import { Service } from '../../types';
 
 export const ServiceDetailModal: React.FC = () => {
-  const { activeServiceModal, closeServiceModal, currentUser, role, createRequest, navigate, switchPersona } = useApp();
+  const {
+    activeServiceModal,
+    closeServiceModal,
+    currentUser,
+    role,
+    navigate,
+    setPendingServiceSlug,
+    addToast,
+    refreshCounters,
+  } = useApp();
   const [activeTab, setActiveTab] = useState<'details' | 'devis'>('details');
-  
+  const [serviceDetail, setServiceDetail] = useState<Service | null>(activeServiceModal);
+
   // Form fields
   const [formData, setFormData] = useState<Record<string, any>>({});
+  const [filesData, setFilesData] = useState<Record<string, File | null>>({});
   const [city, setCity] = useState(CITIES[0]);
   const [urgency, setUrgency] = useState<'normal' | 'urgent'>('normal');
   const [description, setDescription] = useState('');
   const [title, setTitle] = useState('');
-  const [clientEmail, setClientEmail] = useState(currentUser?.email || '');
-  const [clientName, setClientName] = useState(currentUser ? `${currentUser.firstName} ${currentUser.lastName}` : '');
+  const [submitting, setSubmitting] = useState(false);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  if (!activeServiceModal) return null;
+  useEffect(() => {
+    setServiceDetail(activeServiceModal);
+    setFormData({});
+    setFilesData({});
+    setCity(CITIES[0]);
+    setUrgency('normal');
+    setDescription('');
+    setTitle('');
+    setErrorMsg(null);
+    setActiveTab('details');
+
+    if (!activeServiceModal) return;
+    let cancelled = false;
+    const slug = activeServiceModal.slug || activeServiceModal.id;
+    fetchServiceBySlug(slug)
+      .then((fresh) => {
+        if (!cancelled && fresh) {
+          setServiceDetail(fresh);
+        }
+      })
+      .catch(() => {
+        // Keep catalog service details on transient network failures
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [activeServiceModal]);
+
+  const service = serviceDetail || activeServiceModal;
+  if (!service) return null;
 
   const handleFieldChange = (name: string, value: any) => {
     setFormData(prev => ({ ...prev, [name]: value }));
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    
-    // If not logged in, auto associate with client demo u01 or create request
-    const userId = currentUser ? currentUser.id : 'u01';
-    const reqTitle = title.trim() || `${activeServiceModal.name} - ${city}`;
-
-    const newReq = createRequest({
-      userId,
-      serviceId: activeServiceModal.id,
-      title: reqTitle,
-      city,
-      urgency,
-      budget: activeServiceModal.price,
-      description: description || `Demande de devis pour ${activeServiceModal.name}.`,
-      details: formData,
-    });
-
+  const handleRedirectAuth = (target: 'login' | 'register') => {
+    setPendingServiceSlug(service.slug || service.id);
     closeServiceModal();
+    navigate(target);
+  };
 
-    // If visitor, switch to client space to see their brand new request
-    if (role === 'VISITOR') {
-      switchPersona('USER', 'u01');
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setErrorMsg(null);
+
+    if (!currentUser || role === 'VISITOR') {
+      handleRedirectAuth('login');
+      return;
+    }
+
+    if (role !== 'USER') {
+      addToast('Connectez-vous avec un compte client pour créer une demande.', 'error');
+      return;
+    }
+
+    const reqTitle = title.trim() || `${service.name} - ${city}`;
+    setSubmitting(true);
+    try {
+      const newReq = await createServiceRequest({
+        service: service.slug || service.id,
+        title: reqTitle,
+        city,
+        urgency,
+        budget: service.price,
+        description: description || `Demande de devis pour ${service.name}.`,
+        details: formData,
+        files: filesData,
+      });
+
+      await refreshCounters();
+      addToast('Demande envoyée avec succès.', 'success');
+      closeServiceModal();
       navigate('client-request-detail', newReq.id);
-    } else {
-      navigate('client-request-detail', newReq.id);
+    } catch (err) {
+      const msg =
+        getFirstValidationError(err) ||
+        (err instanceof ApiError ? err.message : "Impossible d'envoyer votre demande.");
+      setErrorMsg(msg);
+      addToast(msg, 'error');
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -60,8 +124,8 @@ export const ServiceDetailModal: React.FC = () => {
         {/* Header Photo */}
         <div className="relative h-56 sm:h-64 overflow-hidden">
           <img
-            src={activeServiceModal.photo}
-            alt={activeServiceModal.name}
+            src={service.photo}
+            alt={service.name}
             className="w-full h-full object-cover"
           />
           <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/30 to-transparent" />
@@ -77,10 +141,10 @@ export const ServiceDetailModal: React.FC = () => {
 
           <div className="absolute bottom-4 left-6 right-6 text-white">
             <span className="text-xs font-bold text-[#f5c842] uppercase tracking-wider block">
-              {activeServiceModal.price}
+              {service.price}
             </span>
             <h2 className="font-display text-2xl sm:text-3xl font-bold mt-1">
-              {activeServiceModal.name}
+              {service.name}
             </h2>
           </div>
         </div>
@@ -120,7 +184,7 @@ export const ServiceDetailModal: React.FC = () => {
                   Description de la prestation
                 </h3>
                 <p className="text-sm text-[#56635b] mt-2 leading-relaxed">
-                  {activeServiceModal.short}
+                  {service.short}
                 </p>
               </div>
 
@@ -129,7 +193,7 @@ export const ServiceDetailModal: React.FC = () => {
                   Ce qui est systématiquement inclus
                 </h3>
                 <div className="space-y-2.5">
-                  {activeServiceModal.included.map((inc, i) => (
+                  {service.included.map((inc, i) => (
                     <div key={i} className="flex items-start gap-3 text-xs sm:text-sm text-[#404844]">
                       <CheckCircle2 className="w-4 h-4 text-emerald-600 mt-0.5 shrink-0" />
                       <span>{inc}</span>
@@ -139,12 +203,12 @@ export const ServiceDetailModal: React.FC = () => {
               </div>
 
               {/* Guarantees Box */}
-              <div className="p-4 rounded-2xl bg-[#e8f5ee] border border-[#1a5c3a]/20 space-y-2">
-                <div className="flex items-center gap-2 font-bold text-xs text-[#1a5c3a]">
-                  <ShieldCheck className="w-4 h-4" />
+              <div className="p-4 sm:p-5 rounded-2xl bg-[#e8f5ee] border border-[#1a5c3a]/20 space-y-2">
+                <div className="flex items-center gap-2 font-bold text-sm sm:text-[15px] text-[#1a5c3a]">
+                  <ShieldCheck className="w-[18px] h-[18px] shrink-0" />
                   <span>Nos engagements de transparence</span>
                 </div>
-                <p className="text-xs text-[#56635b]">
+                <p className="text-sm leading-relaxed text-[#404844]">
                   Rapport écrit remis sous 24h ouvrées. Vidéos et photos horodatées géolocalisées. Reçus scannés à l'euro près pour chaque dépense de matériel ou de formalité.
                 </p>
               </div>
@@ -153,10 +217,9 @@ export const ServiceDetailModal: React.FC = () => {
                 <button
                   type="button"
                   onClick={() => setActiveTab('devis')}
-                  className="w-full py-3.5 rounded-full bg-[#1a5c3a] hover:bg-[#123f28] text-white text-xs font-bold transition flex items-center justify-center gap-2 shadow-md"
+                  className="w-full py-3.5 rounded-full bg-[#1a5c3a] hover:bg-[#123f28] text-white text-sm font-bold transition flex items-center justify-center shadow-md"
                 >
                   <span>Passer à la demande de devis</span>
-                  <ArrowRight className="w-4 h-4" />
                 </button>
               </div>
             </div>
@@ -170,7 +233,7 @@ export const ServiceDetailModal: React.FC = () => {
                   type="text"
                   value={title}
                   onChange={(e) => setTitle(e.target.value)}
-                  placeholder={`Ex: ${activeServiceModal.name} - Calavi`}
+                  placeholder={`Ex: ${service.name} - Calavi`}
                   className="w-full p-3 rounded-xl border border-neutral-300 text-xs text-[#1a1f1b] focus:ring-2 focus:ring-[#1a5c3a] focus:outline-none"
                 />
               </div>
@@ -205,7 +268,7 @@ export const ServiceDetailModal: React.FC = () => {
               </div>
 
               {/* Dynamic Service Specific Fields */}
-              {activeServiceModal.fields.map((f) => (
+              {service.fields.map((f) => (
                 <div key={f.name}>
                   <label className="block text-xs font-bold text-[#404844] mb-1">
                     {f.label} {f.required && <span className="text-red-500">*</span>}
@@ -220,6 +283,17 @@ export const ServiceDetailModal: React.FC = () => {
                       <option value="">Sélectionner une option...</option>
                       {f.options?.map(opt => <option key={opt} value={opt}>{opt}</option>)}
                     </select>
+                  ) : f.type === 'file' ? (
+                    <input
+                      type="file"
+                      accept=".pdf,.jpg,.jpeg,.png"
+                      required={f.required}
+                      onChange={(e) => {
+                        const file = e.target.files?.[0] || null;
+                        setFilesData(prev => ({ ...prev, [f.name]: file }));
+                      }}
+                      className="w-full p-2.5 rounded-xl border border-neutral-300 text-xs text-[#1a1f1b] bg-white"
+                    />
                   ) : (
                     <input
                       type={f.type || 'text'}
@@ -246,49 +320,50 @@ export const ServiceDetailModal: React.FC = () => {
                 />
               </div>
 
-              {!currentUser && (
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2">
-                  <div>
-                    <label className="block text-xs font-bold text-[#404844] mb-1">
-                      Votre nom complet
-                    </label>
-                    <input
-                      type="text"
-                      required
-                      value={clientName}
-                      onChange={(e) => setClientName(e.target.value)}
-                      placeholder="Ex: Aïcha Sossa"
-                      className="w-full p-3 rounded-xl border border-neutral-300 text-xs text-[#1a1f1b]"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-bold text-[#404844] mb-1">
-                      Votre adresse email
-                    </label>
-                    <input
-                      type="email"
-                      required
-                      value={clientEmail}
-                      onChange={(e) => setClientEmail(e.target.value)}
-                      placeholder="client@kwabo.demo"
-                      className="w-full p-3 rounded-xl border border-neutral-300 text-xs text-[#1a1f1b]"
-                    />
-                  </div>
+              {errorMsg && (
+                <div className="p-3 rounded-xl bg-red-50 border border-red-200 text-red-700 text-xs">
+                  {errorMsg}
                 </div>
               )}
 
-              <div className="pt-4">
-                <button
-                  type="submit"
-                  className="w-full py-4 rounded-full bg-[#1a5c3a] hover:bg-[#123f28] text-white text-xs font-bold transition flex items-center justify-center gap-2 shadow-lg"
-                >
-                  <span>Envoyer ma demande de devis</span>
-                  <ArrowRight className="w-4 h-4" />
-                </button>
-                <span className="block text-center text-[10px] text-neutral-400 mt-2">
-                  Sans engagement · Devis détaillé émis sous 12h
-                </span>
-              </div>
+              {!currentUser ? (
+                <div className="pt-3 space-y-3">
+                  <div className="p-3.5 rounded-2xl bg-[#f9f7f4] border border-[#e0e8e4] text-xs text-[#404844]">
+                    Connectez-vous ou créez un compte gratuit pour envoyer votre demande et recevoir votre devis personnalisé sous 12h.
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <button
+                      type="button"
+                      onClick={() => handleRedirectAuth('login')}
+                      className="w-full py-3.5 rounded-full bg-[#1a5c3a] hover:bg-[#123f28] text-white text-xs font-bold transition flex items-center justify-center gap-2 shadow-lg"
+                    >
+                      <span>Se connecter pour envoyer</span>
+                      <ArrowRight className="w-4 h-4" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleRedirectAuth('register')}
+                      className="w-full py-3.5 rounded-full border border-[#1a5c3a] text-[#1a5c3a] hover:bg-[#e8f5ee] text-xs font-bold transition"
+                    >
+                      Créer un compte client
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="pt-4">
+                  <button
+                    type="submit"
+                    disabled={submitting}
+                    className="w-full py-4 rounded-full bg-[#1a5c3a] hover:bg-[#123f28] disabled:opacity-60 text-white text-xs font-bold transition flex items-center justify-center gap-2 shadow-lg"
+                  >
+                    <span>{submitting ? 'Envoi en cours…' : 'Envoyer ma demande de devis'}</span>
+                    <ArrowRight className="w-4 h-4" />
+                  </button>
+                  <span className="block text-center text-[10px] text-neutral-400 mt-2">
+                    Sans engagement · Devis détaillé émis sous 12h
+                  </span>
+                </div>
+              )}
             </form>
           )}
         </div>

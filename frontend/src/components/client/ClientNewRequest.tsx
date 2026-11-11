@@ -1,8 +1,11 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useApp } from '../../context/AppContext';
-import { SERVICES, CATEGORIES, CITIES } from '../../data/kwaboData';
+import { CITIES } from '../../data/kwaboData';
 import { Icon } from '../common/Icon';
-import { Request } from '../../types';
+import { RequestItem, Service } from '../../types';
+import { createServiceRequest } from '../../services/requests';
+import { fetchServiceBySlug } from '../../services/catalog';
+import { ApiError, getFirstValidationError } from '../../services/api';
 
 /* Animations ajoutées (CSS uniquement, aucune logique modifiée) */
 const NEW_REQUEST_ANIMATIONS = `
@@ -225,13 +228,24 @@ const NEW_REQUEST_ANIMATIONS = `
 `;
 
 export const ClientNewRequest: React.FC = () => {
-  const { currentUser, createRequest, navigate, openPhotoModal } = useApp();
+  const {
+    currentUser,
+    services,
+    categories,
+    pendingServiceSlug,
+    setPendingServiceSlug,
+    navigate,
+    refreshCounters,
+    addToast,
+  } = useApp();
+
+  const availableServices = services.filter(s => s.available);
 
   const [step, setStep] = useState<1 | 2 | 3>(1);
-  const [selectedServiceId, setSelectedServiceId] = useState<string>(SERVICES[0].id);
+  const [selectedServiceId, setSelectedServiceId] = useState<string>(availableServices[0]?.id || services[0]?.id || '');
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [catalogSearch, setCatalogSearch] = useState<string>('');
-  
+
   // Step 2 Form fields
   const [title, setTitle] = useState('');
   const [city, setCity] = useState(CITIES[0]);
@@ -239,15 +253,60 @@ export const ClientNewRequest: React.FC = () => {
   const [description, setDescription] = useState('');
   const [budget, setBudget] = useState('');
   const [specificDetails, setSpecificDetails] = useState<Record<string, string>>({});
-  
+  const [specificFiles, setSpecificFiles] = useState<Record<string, File | null>>({});
+  const [submitting, setSubmitting] = useState(false);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
   // Step 3 Created request
-  const [createdRequest, setCreatedRequest] = useState<Request | null>(null);
+  const [createdRequest, setCreatedRequest] = useState<RequestItem | null>(null);
+  const [freshService, setFreshService] = useState<Service | null>(null);
 
-  const selectedService = SERVICES.find(s => s.id === selectedServiceId) || SERVICES[0];
+  const catalogService =
+    services.find(s => s.id === selectedServiceId || s.slug === selectedServiceId) ||
+    availableServices[0] ||
+    services[0];
+  const selectedService =
+    freshService &&
+    catalogService &&
+    (freshService.slug === catalogService.slug || freshService.id === catalogService.id)
+      ? freshService
+      : catalogService;
 
-  const filteredServices = SERVICES.filter(s => {
+  useEffect(() => {
+    const slug = catalogService?.slug || catalogService?.id;
+    if (step !== 2 || !slug) return;
+    let cancelled = false;
+    fetchServiceBySlug(slug)
+      .then((detail) => {
+        if (!cancelled && detail) {
+          setFreshService(detail);
+        }
+      })
+      .catch(() => {
+        // Keep catalog service data on transient error
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [step, catalogService?.slug, catalogService?.id]);
+
+  useEffect(() => {
+    if (!pendingServiceSlug || services.length === 0) return;
+    const target = services.find(s => s.slug === pendingServiceSlug || s.id === pendingServiceSlug);
+    if (target) {
+      setSelectedServiceId(target.id);
+      setTitle(target.name);
+      setBudget(target.price);
+      setSpecificDetails({});
+      setSpecificFiles({});
+      setStep(2);
+    }
+    setPendingServiceSlug(null);
+  }, [pendingServiceSlug, services, setPendingServiceSlug]);
+
+  const filteredServices = availableServices.filter(s => {
     const matchesCat = selectedCategory === 'all' || s.cat === selectedCategory;
-    const matchesQ = !catalogSearch.trim() || 
+    const matchesQ = !catalogSearch.trim() ||
       s.name.toLowerCase().includes(catalogSearch.toLowerCase()) ||
       (s.desc || s.short).toLowerCase().includes(catalogSearch.toLowerCase());
     return matchesCat && matchesQ;
@@ -255,37 +314,54 @@ export const ClientNewRequest: React.FC = () => {
 
   const handleSelectService = (id: string) => {
     setSelectedServiceId(id);
-    const s = SERVICES.find(x => x.id === id);
+    const s = services.find(x => x.id === id);
     if (s) {
       setTitle(s.name);
       setBudget(s.price);
     }
+    setSpecificDetails({});
+    setSpecificFiles({});
+    setErrorMsg(null);
     setStep(2);
   };
 
-  const handleCreateSubmit = (e: React.FormEvent) => {
+  const handleCreateSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!currentUser) return;
+    if (!currentUser || !selectedService || submitting) return;
 
-    const req = createRequest({
-      userId: currentUser.id,
-      serviceId: selectedService.id,
-      title: title.trim() || selectedService.name,
-      city,
-      urgency,
-      budget: budget.trim() || selectedService.price,
-      description: description.trim() || `Demande pour ${selectedService.name}.`,
-      details: specificDetails,
-    });
+    setSubmitting(true);
+    setErrorMsg(null);
+    try {
+      const req = await createServiceRequest({
+        service: selectedService.slug || selectedService.id,
+        title: title.trim() || selectedService.name,
+        city,
+        urgency,
+        budget: budget.trim() || selectedService.price,
+        description: description.trim() || `Demande pour ${selectedService.name}.`,
+        details: specificDetails,
+        files: specificFiles,
+      });
 
-    setCreatedRequest(req);
-    setStep(3);
+      await refreshCounters();
+      setCreatedRequest(req);
+      setStep(3);
+      addToast('Demande envoyée avec succès.', 'success');
+    } catch (err) {
+      const msg =
+        getFirstValidationError(err) ||
+        (err instanceof ApiError ? err.message : "Impossible d'envoyer votre demande.");
+      setErrorMsg(msg);
+      addToast(msg, 'error');
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   const copyTracking = () => {
     if (createdRequest) {
       navigator.clipboard.writeText(createdRequest.tracking);
-      alert('Numéro de suivi copié !');
+      addToast('Numéro de suivi copié !', 'success');
     }
   };
 
@@ -344,7 +420,7 @@ export const ClientNewRequest: React.FC = () => {
             >
               Tous
             </button>
-            {CATEGORIES.map((c, idx) => (
+            {categories.map((c, idx) => (
               <button
                 key={c.id}
                 className="chip"
@@ -483,7 +559,7 @@ export const ClientNewRequest: React.FC = () => {
               />
             </div>
 
-            {selectedService.fields && selectedService.fields.length > 0 && (
+            {selectedService && selectedService.fields && selectedService.fields.length > 0 && (
               <>
                 <h2 className="form-section">Détails pour « {selectedService.name} »</h2>
                 <div className="form-grid form-grid-auto">
@@ -509,14 +585,27 @@ export const ClientNewRequest: React.FC = () => {
                           id={`field-${f.name}`}
                           required={f.required}
                           rows={2}
+                          placeholder={f.placeholder}
                           value={specificDetails[f.name] || ''}
                           onChange={(e) => setSpecificDetails(prev => ({ ...prev, [f.name]: e.target.value }))}
+                        />
+                      ) : f.type === 'file' ? (
+                        <input
+                          id={`field-${f.name}`}
+                          type="file"
+                          accept=".pdf,.jpg,.jpeg,.png"
+                          required={f.required}
+                          onChange={(e) => {
+                            const file = e.target.files?.[0] || null;
+                            setSpecificFiles(prev => ({ ...prev, [f.name]: file }));
+                          }}
                         />
                       ) : (
                         <input
                           id={`field-${f.name}`}
-                          type="text"
+                          type={f.type || 'text'}
                           required={f.required}
+                          placeholder={f.placeholder}
                           value={specificDetails[f.name] || ''}
                           onChange={(e) => setSpecificDetails(prev => ({ ...prev, [f.name]: e.target.value }))}
                         />
@@ -527,17 +616,21 @@ export const ClientNewRequest: React.FC = () => {
               </>
             )}
 
+            {errorMsg && (
+              <p className="notice notice-red mt-3">{errorMsg}</p>
+            )}
+
             <div className="form-actions">
-              <button 
-                className="btn btn-ghost" 
-                type="button" 
+              <button
+                className="btn btn-ghost"
+                type="button"
                 onClick={() => setStep(1)}
               >
                 <Icon name="arrow-left" size={18} />
                 <span>Changer de service</span>
               </button>
-              <button className="btn btn-primary btn-lg" type="submit">
-                Envoyer ma demande
+              <button className="btn btn-primary btn-lg" type="submit" disabled={submitting}>
+                {submitting ? 'Envoi en cours…' : 'Envoyer ma demande'}
               </button>
             </div>
           </form>

@@ -1,17 +1,63 @@
-import React, { useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { useApp } from '../../context/AppContext';
+import { api, ApiError, getFirstValidationError } from '../../services/api';
+import { mapUser } from '../../services/mappers';
+import { User, UserRole } from '../../types';
 import { Icon } from '../common/Icon';
-import { UserRole } from '../../types';
+
+interface TeamMember extends User {
+  activeCount: number;
+  totalCount: number;
+}
 
 export const AdminTeam: React.FC = () => {
-  const { users, requests, toggleSuspendUser, addToast } = useApp();
+  const { addToast, confirm } = useApp();
+  const [teamMembers, setTeamMembers] = useState<TeamMember[]>([]);
+  const [loading, setLoading] = useState(true);
   const [showAddModal, setShowAddModal] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
   const [newFirstName, setNewFirstName] = useState('');
   const [newLastName, setNewLastName] = useState('');
   const [newEmail, setNewEmail] = useState('');
   const [newPhone, setNewPhone] = useState('');
+  const [tempPasswordNote, setTempPasswordNote] = useState<string | null>(null);
 
-  const teamMembers = users.filter(u => u.role !== 'USER');
+  const loadTeam = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await api<any>('/admin/team');
+      const rawList = Array.isArray(res?.data) ? res.data : Array.isArray(res) ? res : [];
+      const mapped: TeamMember[] = rawList.map((raw: any) => {
+        const u = mapUser(raw);
+        return {
+          ...u,
+          activeCount: Number(
+            raw?.active_count ??
+              raw?.active_missions_count ??
+              raw?.active_missions ??
+              raw?.active ??
+              0
+          ),
+          totalCount: Number(
+            raw?.total_count ??
+              raw?.total_missions_count ??
+              raw?.missions_count ??
+              raw?.requests_count ??
+              0
+          ),
+        };
+      });
+      setTeamMembers(mapped);
+    } catch (err) {
+      addToast(err instanceof ApiError ? err.message : "Impossible de charger l'équipe.", 'error');
+    } finally {
+      setLoading(false);
+    }
+  }, [addToast]);
+
+  useEffect(() => {
+    loadTeam();
+  }, [loadTeam]);
 
   const ROLE_LABEL: Record<UserRole, string> = {
     ADMIN: 'Administrateur',
@@ -30,22 +76,59 @@ export const AdminTeam: React.FC = () => {
     ['Gérer le catalogue et l\'équipe', false, false, true],
   ];
 
-  const handleToggleSuspend = (id: string, name: string, isSuspended: boolean) => {
-    if (window.confirm(isSuspended ? `Réactiver ${name} ?` : `Suspendre ${name} ?`)) {
-      toggleSuspendUser(id);
+  const handleToggleSuspend = async (id: string, name: string, isSuspended: boolean) => {
+    const ok = await confirm({
+      title: isSuspended ? `Réactiver ${name} ?` : `Suspendre ${name} ?`,
+      message: isSuspended
+        ? 'Cet agent pourra de nouveau se connecter et accéder à ses missions.'
+        : 'Cet agent ne pourra plus accéder à son espace tant qu’il reste suspendu.',
+      confirmLabel: isSuspended ? 'Réactiver' : 'Suspendre',
+      cancelLabel: 'Annuler',
+      variant: isSuspended ? 'primary' : 'warning',
+    });
+    if (!ok) return;
+    try {
+      await api(`/admin/clients/${id}/suspend`, {
+        method: 'POST',
+        body: { suspended: !isSuspended },
+      });
       addToast(isSuspended ? 'Compte réactivé.' : 'Compte suspendu.');
+      await loadTeam();
+    } catch (err) {
+      addToast(err instanceof ApiError ? getFirstValidationError(err) : 'Action impossible.', 'error');
     }
   };
 
-  const handleAddOperator = (e: React.FormEvent) => {
+  const handleAddOperator = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newFirstName.trim() || !newLastName.trim() || !newEmail.trim()) return;
-    addToast(`Agent ${newFirstName} ${newLastName} ajouté avec succès.`);
-    setShowAddModal(false);
-    setNewFirstName('');
-    setNewLastName('');
-    setNewEmail('');
-    setNewPhone('');
+    setSubmitting(true);
+    try {
+      const res = await api<any>('/admin/operators', {
+        method: 'POST',
+        body: {
+          first_name: newFirstName.trim(),
+          last_name: newLastName.trim(),
+          email: newEmail.trim(),
+          phone: newPhone.trim(),
+        },
+      });
+      const generatedPwd = res?.temporary_password ?? res?.password ?? res?.data?.temporary_password;
+      if (generatedPwd) {
+        setTempPasswordNote(`Mot de passe temporaire pour ${newEmail.trim()} : ${generatedPwd}`);
+      }
+      addToast(`Agent ${newFirstName.trim()} ${newLastName.trim()} ajouté avec succès.`);
+      setShowAddModal(false);
+      setNewFirstName('');
+      setNewLastName('');
+      setNewEmail('');
+      setNewPhone('');
+      await loadTeam();
+    } catch (err) {
+      addToast(err instanceof ApiError ? getFirstValidationError(err) : "Impossible d'ajouter l'agent.", 'error');
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   return (
@@ -61,54 +144,69 @@ export const AdminTeam: React.FC = () => {
         </button>
       </div>
 
-      <ul className="team-grid">
-        {teamMembers.map(u => {
-          const assigned = requests.filter(r => r.operatorId === u.id);
-          const activeCount = assigned.filter(r => r.status === 'active').length;
+      {tempPasswordNote && (
+        <div className="alert mb-4 flex items-center justify-between gap-3">
+          <span>{tempPasswordNote}</span>
+          <button
+            type="button"
+            className="btn btn-ghost btn-sm"
+            onClick={() => setTempPasswordNote(null)}
+          >
+            Fermer
+          </button>
+        </div>
+      )}
 
-          return (
-            <li key={u.id} className="card">
-              <div className="client-mini">
-                <span className="avatar">{u.firstName[0]}{u.lastName[0]}</span>
-                <span>
-                  <strong>{u.firstName} {u.lastName}</strong>
-                  <small>{ROLE_LABEL[u.role]}</small>
-                </span>
-                {u.suspended && <span className="badge badge-red ml-auto">Suspendu</span>}
-              </div>
+      {loading && teamMembers.length === 0 ? (
+        <div className="empty">Chargement de l'équipe…</div>
+      ) : (
+        <ul className="team-grid">
+          {teamMembers.map(u => {
+            const initials = `${u.firstName[0] || ''}${u.lastName[0] || ''}`.toUpperCase() || '?';
+            return (
+              <li key={u.id} className="card">
+                <div className="client-mini">
+                  <span className="avatar">{initials}</span>
+                  <span>
+                    <strong>{u.firstName} {u.lastName}</strong>
+                    <small>{ROLE_LABEL[u.role] || u.role}</small>
+                  </span>
+                  {u.suspended && <span className="badge badge-red ml-auto">Suspendu</span>}
+                </div>
 
-              <ul className="contact-list">
-                <li>
-                  <Icon name="envelope" size={18} />
-                  <span>{u.email}</span>
-                </li>
-                <li>
-                  <Icon name="phone" size={18} />
-                  <span>{u.phone}</span>
-                </li>
-              </ul>
+                <ul className="contact-list">
+                  <li>
+                    <Icon name="envelope" size={18} />
+                    <span>{u.email}</span>
+                  </li>
+                  <li>
+                    <Icon name="phone" size={18} />
+                    <span>{u.phone || '—'}</span>
+                  </li>
+                </ul>
 
-              {u.role === 'OPERATOR' ? (
-                <p className="team-load">
-                  <strong>{activeCount}</strong> en cours · <strong>{assigned.length}</strong> au total
-                </p>
-              ) : (
-                <p className="team-load muted">Accès à toutes les demandes</p>
-              )}
+                {u.role === 'OPERATOR' ? (
+                  <p className="team-load">
+                    <strong>{u.activeCount}</strong> en cours · <strong>{u.totalCount}</strong> au total
+                  </p>
+                ) : (
+                  <p className="team-load muted">Accès à toutes les demandes</p>
+                )}
 
-              {u.role !== 'ADMIN' && (
-                <button
-                  className="btn btn-ghost btn-sm"
-                  type="button"
-                  onClick={() => handleToggleSuspend(u.id, `${u.firstName} ${u.lastName}`, !!u.suspended)}
-                >
-                  {u.suspended ? 'Réactiver' : 'Suspendre'}
-                </button>
-              )}
-            </li>
-          );
-        })}
-      </ul>
+                {u.role !== 'ADMIN' && (
+                  <button
+                    className="btn btn-ghost btn-sm"
+                    type="button"
+                    onClick={() => handleToggleSuspend(u.id, `${u.firstName} ${u.lastName}`, !!u.suspended)}
+                  >
+                    {u.suspended ? 'Réactiver' : 'Suspendre'}
+                  </button>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+      )}
 
       {/* Permissions Matrix Table */}
       <section className="card mt-6">
@@ -208,8 +306,9 @@ export const AdminTeam: React.FC = () => {
                 <button
                   className="btn btn-primary"
                   type="submit"
+                  disabled={submitting}
                 >
-                  Ajouter
+                  {submitting ? 'Ajout…' : 'Ajouter'}
                 </button>
               </div>
             </form>

@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { CATEGORIES } from '../../data/kwaboData';
+import { useApp } from '../../context/AppContext';
 import { Building2, Users, FileText, Truck, ArrowRight } from 'lucide-react';
 
 interface Props {
@@ -7,11 +7,16 @@ interface Props {
 }
 
 export const CategoriesSection: React.FC<Props> = ({ onSelectCategory }) => {
+  const { categories } = useApp();
   const iconMap: Record<string, React.ElementType> = {
     Building2,
     Users,
     FileText,
-    Truck
+    Truck,
+    building: Building2,
+    users: Users,
+    'file-text': FileText,
+    truck: Truck,
   };
 
   // Les cartes apparaissent une par une quand la grille entre dans l'écran
@@ -55,7 +60,7 @@ export const CategoriesSection: React.FC<Props> = ({ onSelectCategory }) => {
         </div>
 
         <div ref={gridRef} className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-          {CATEGORIES.map((cat, index) => {
+          {categories.map((cat, index) => {
             const Icon = iconMap[cat.icon] || Building2;
             return (
               <div

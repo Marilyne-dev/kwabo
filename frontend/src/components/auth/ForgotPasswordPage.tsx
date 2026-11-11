@@ -1,22 +1,37 @@
-import React, { useState } from 'react';
-import { Eye, EyeOff, Info, Mail, Lock, CheckCircle2 } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Eye, EyeOff, Mail, CheckCircle2 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
+import { api, ApiError } from '../../services/api';
 import { AuthPageLayout } from './AuthPageLayout';
 
 export const ForgotPasswordPage: React.FC = () => {
-  const { navigate, addToast, resetPassword } = useApp();
-  const [step, setStep] = useState<'request' | 'reset'>('request');
-  const [email, setEmail] = useState('');
+  const { navigate, addToast, resetPasswordParams, currentView } = useApp();
+  const isResetRoute = currentView === 'reset-password' || Boolean(resetPasswordParams);
+
+  const [step, setStep] = useState<'request' | 'sent' | 'reset'>(isResetRoute ? 'reset' : 'request');
+  const [email, setEmail] = useState(resetPasswordParams?.email || '');
+  const [token, setToken] = useState(resetPasswordParams?.token || '');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
 
-  const inputClassName = 'min-h-[48px] w-full rounded-xl border border-[#c9d4ce] px-3.5 py-2.5 text-sm text-[#1a1f1b] outline-none transition focus:border-[#1a5c3a] focus:ring-2 focus:ring-[#1a5c3a]/15';
+  useEffect(() => {
+    if (resetPasswordParams) {
+      setEmail(resetPasswordParams.email || '');
+      setToken(resetPasswordParams.token || '');
+      setStep('reset');
+    } else if (currentView === 'forgot-password' && step === 'reset') {
+      setStep('request');
+    }
+  }, [resetPasswordParams, currentView]);
+
+  const inputClassName =
+    'min-h-[48px] w-full rounded-xl border border-[#c9d4ce] px-3.5 py-2.5 text-sm text-[#1a1f1b] outline-none transition focus:border-[#1a5c3a] focus:ring-2 focus:ring-[#1a5c3a]/15';
   const labelClassName = 'mb-1.5 block text-sm font-semibold text-[#1a1f1b]';
 
-  const handleSendLink = (e: React.FormEvent) => {
+  const handleSendLink = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
 
@@ -27,17 +42,33 @@ export const ForgotPasswordPage: React.FC = () => {
     }
 
     setIsLoading(true);
-    setTimeout(() => {
+    try {
+      await api('/password/forgot', {
+        method: 'POST',
+        body: { email: cleanEmail },
+        skipAuthRedirect: true,
+      });
+      setStep('sent');
+      addToast('Demande envoyée. Vérifiez votre boîte e-mail.', 'info');
+    } catch (err) {
+      if (err instanceof ApiError) {
+        setError(err.message);
+      } else {
+        setError('Impossible d\'envoyer le lien pour le moment.');
+      }
+    } finally {
       setIsLoading(false);
-      setStep('reset');
-      addToast('Lien de réinitialisation généré (mode démo).', 'info');
-    }, 400);
+    }
   };
 
-  const handleResetPassword = (e: React.FormEvent) => {
+  const handleResetPassword = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
 
+    if (!email.trim() || !token.trim()) {
+      setError('Le lien de réinitialisation est incomplet ou expiré. Veuillez redemander un lien.');
+      return;
+    }
     if (password.length < 8) {
       setError('Le mot de passe doit comporter au moins 8 caractères.');
       return;
@@ -50,22 +81,38 @@ export const ForgotPasswordPage: React.FC = () => {
       setError('Le mot de passe doit contenir au moins 1 chiffre.');
       return;
     }
-    if (confirmPassword && password !== confirmPassword) {
+    if (password !== confirmPassword) {
       setError('Les deux mots de passe ne correspondent pas.');
       return;
     }
 
     setIsLoading(true);
-    setTimeout(() => {
-      setIsLoading(false);
-      const res = resetPassword(email, password);
-      if (res.success) {
-        addToast('Mot de passe enregistré. Vous pouvez vous connecter.', 'success');
-        navigate('login');
-      } else {
-        setError(res.message || 'Erreur lors de la réinitialisation.');
+    try {
+      await api('/password/reset', {
+        method: 'POST',
+        body: {
+          email: email.trim(),
+          token: token.trim(),
+          password,
+        },
+        skipAuthRedirect: true,
+      });
+      addToast('Mot de passe enregistré. Vous pouvez vous connecter.', 'success');
+      if (window.location.pathname.includes('reinitialiser-mot-de-passe')) {
+        const basePath = window.location.pathname.replace(/\/reinitialiser-mot-de-passe.*$/, '') || '/';
+        window.history.replaceState(null, '', `${basePath}#/connexion`);
       }
-    }, 400);
+      navigate('login');
+    } catch (err) {
+      if (err instanceof ApiError) {
+        const firstErr = err.errors ? Object.values(err.errors)[0]?.[0] : null;
+        setError(firstErr || err.message || 'Erreur lors de la réinitialisation.');
+      } else {
+        setError('Erreur réseau lors de la réinitialisation.');
+      }
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (
@@ -99,9 +146,13 @@ export const ForgotPasswordPage: React.FC = () => {
                   value={email}
                   onChange={e => setEmail(e.target.value)}
                   placeholder="vous@exemple.com"
-                  className={`${inputClassName} pl-10`}
+                  style={{ paddingLeft: '2.75rem' }}
+                  className={`${inputClassName} pl-11`}
                 />
-                <Mail className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-[#56635b]" />
+                <Mail
+                  aria-hidden="true"
+                  className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-[#56635b]"
+                />
               </div>
             </div>
 
@@ -124,18 +175,43 @@ export const ForgotPasswordPage: React.FC = () => {
             </button>
           </p>
         </div>
+      ) : step === 'sent' ? (
+        <div>
+          <div className="mb-4 inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-[#e8f5ee] text-[#1a5c3a]">
+            <CheckCircle2 className="h-6 w-6" />
+          </div>
+          <h2 className="font-display text-3xl font-semibold tracking-tight text-[#1a1f1b] sm:text-[34px]">
+            E-mail envoyé
+          </h2>
+          <p className="mt-2 text-base text-[#56635b]">
+            Si un compte correspond à <strong>{email}</strong>, vous allez recevoir un e-mail contenant un lien valable 1 heure pour définir un nouveau mot de passe.
+          </p>
+
+          <div className="mt-6 space-y-3">
+            <button
+              type="button"
+              onClick={() => navigate('login')}
+              className="min-h-[52px] w-full rounded-full bg-[#1a5c3a] px-5 font-semibold text-white transition hover:bg-[#123f28]"
+            >
+              Retour à la connexion
+            </button>
+            <button
+              type="button"
+              onClick={() => setStep('request')}
+              className="w-full py-2 text-sm font-medium text-[#1a5c3a] hover:underline"
+            >
+              Utiliser une autre adresse e-mail
+            </button>
+          </div>
+        </div>
       ) : (
         <div>
           <h2 className="font-display text-3xl font-semibold tracking-tight text-[#1a1f1b] sm:text-[34px]">
             Nouveau mot de passe
           </h2>
-
-          <div className="mt-3 flex items-start gap-2.5 rounded-xl border border-[#dce4df] bg-[#e8f5ee] p-3 text-xs text-[#1a4d30]">
-            <Info className="h-4 w-4 shrink-0 mt-0.5 text-[#1a5c3a]" />
-            <span>
-              <strong>Démonstration :</strong> en situation réelle, ce formulaire s'ouvre depuis le lien reçu par e-mail ({email}).
-            </span>
-          </div>
+          <p className="mt-1 text-sm text-[#56635b]">
+            Compte concerné : <strong>{email || 'non précisé'}</strong>
+          </p>
 
           {error && (
             <p role="alert" className="mt-4 rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">
@@ -144,6 +220,20 @@ export const ForgotPasswordPage: React.FC = () => {
           )}
 
           <form onSubmit={handleResetPassword} className="mt-5 space-y-4">
+            {!resetPasswordParams?.email && (
+              <div>
+                <label htmlFor="reset-email" className={labelClassName}>E-mail</label>
+                <input
+                  id="reset-email"
+                  type="email"
+                  required
+                  value={email}
+                  onChange={e => setEmail(e.target.value)}
+                  className={inputClassName}
+                />
+              </div>
+            )}
+
             <div>
               <label htmlFor="reset-password" className={labelClassName}>
                 Nouveau mot de passe
@@ -157,6 +247,7 @@ export const ForgotPasswordPage: React.FC = () => {
                   value={password}
                   onChange={e => setPassword(e.target.value)}
                   placeholder="••••••••"
+                  style={{ paddingRight: '3rem' }}
                   className={`${inputClassName} pr-12`}
                 />
                 <button
@@ -212,4 +303,3 @@ export const ForgotPasswordPage: React.FC = () => {
     </AuthPageLayout>
   );
 };
-

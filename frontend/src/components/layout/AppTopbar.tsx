@@ -1,7 +1,9 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useApp } from '../../context/AppContext';
 import { Icon } from '../common/Icon';
-import { SERVICES, CATEGORIES } from '../../data/kwaboData';
+import { api } from '../../services/api';
+import { mapRequest, mapUser } from '../../services/mappers';
+import { RequestItem, User } from '../../types';
 
 interface TopbarProps {
   title: string;
@@ -11,41 +13,83 @@ interface TopbarProps {
 }
 
 export const AppTopbar: React.FC<TopbarProps> = ({ title, subtitle, onOpenSidebar, actions }) => {
-  const { currentUser, role, currentView, requests, users, notifications, markNotificationRead, navigate } = useApp();
+  const {
+    role,
+    currentView,
+    services,
+    notifications,
+    counters,
+    markNotificationRead,
+    markAllNotificationsRead,
+    navigate,
+    navigateFromLink,
+    setActiveClientId,
+  } = useApp();
+
   const [showNotifications, setShowNotifications] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [showSearchResults, setShowSearchResults] = useState(false);
+  const [searching, setSearching] = useState(false);
+  const [matchingRequests, setMatchingRequests] = useState<RequestItem[]>([]);
+  const [matchingClients, setMatchingClients] = useState<User[]>([]);
   const searchContainerRef = useRef<HTMLDivElement>(null);
+  const notifRef = useRef<HTMLDivElement>(null);
 
-  const userNotifs = notifications.filter(n => 
-    role === 'ADMIN' ? true : n.userId === currentUser?.id || n.userId === 'team'
+  const unreadCount = Math.max(
+    counters.unreadNotifications,
+    notifications.filter(n => !n.read).length
   );
-  const unreadCount = userNotifs.filter(n => !n.read).length;
 
-  // Live admin/operator search logic from admin.js (INPUTS.adminSearchAll)
-  const needle = searchQuery.trim().toLowerCase();
-  const visibleRequests = role === 'OPERATOR' 
-    ? requests.filter(r => r.operatorId === currentUser?.id)
-    : requests;
+  const needle = searchQuery.trim();
 
-  const matchingRequests = needle.length >= 2
-    ? visibleRequests.filter(r => (r.title + ' ' + r.tracking).toLowerCase().includes(needle)).slice(0, 5)
-    : [];
-  const matchingClients = (needle.length >= 2 && role === 'ADMIN')
-    ? users.filter(u => u.role === 'USER' && (u.firstName + ' ' + u.lastName + ' ' + u.email).toLowerCase().includes(needle)).slice(0, 4)
-    : [];
+  // Debounced GET /admin/search?q= for admin & operator
+  useEffect(() => {
+    if ((role !== 'ADMIN' && role !== 'OPERATOR') || needle.length < 2) {
+      setMatchingRequests([]);
+      setMatchingClients([]);
+      setSearching(false);
+      return;
+    }
+
+    let cancelled = false;
+    setSearching(true);
+    const timer = window.setTimeout(async () => {
+      try {
+        const res = await api<any>('/admin/search', { params: { q: needle } });
+        if (cancelled) return;
+        const rawReqs = res?.data?.requests ?? res?.requests ?? [];
+        const rawClients = res?.data?.clients ?? res?.clients ?? [];
+        setMatchingRequests(Array.isArray(rawReqs) ? rawReqs.map(mapRequest) : []);
+        setMatchingClients(Array.isArray(rawClients) ? rawClients.map(mapUser) : []);
+      } catch {
+        if (!cancelled) {
+          setMatchingRequests([]);
+          setMatchingClients([]);
+        }
+      } finally {
+        if (!cancelled) setSearching(false);
+      }
+    }, 250);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [needle, role]);
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
       if (searchContainerRef.current && !searchContainerRef.current.contains(e.target as Node)) {
         setShowSearchResults(false);
       }
+      if (notifRef.current && !notifRef.current.contains(e.target as Node)) {
+        setShowNotifications(false);
+      }
     };
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  // Déterminer s'il faut afficher un bouton retour (pages secondaires)
   const getBackTarget = () => {
     switch (currentView) {
       case 'client-request-detail':
@@ -70,11 +114,56 @@ export const AppTopbar: React.FC<TopbarProps> = ({ title, subtitle, onOpenSideba
 
   return (
     <header className="topbar">
-      <button 
-        className="icon-btn menu-btn" 
-        type="button" 
-        onClick={onOpenSidebar} 
-        aria-label="Ouvrir le menu" 
+      <style>{`
+        @keyframes kwBellRing {
+          0%, 100% { transform: rotate(0deg); }
+          10% { transform: rotate(15deg); }
+          20% { transform: rotate(-13deg); }
+          30% { transform: rotate(10deg); }
+          40% { transform: rotate(-8deg); }
+          50% { transform: rotate(4deg); }
+          60% { transform: rotate(0deg); }
+        }
+        @keyframes kwDotPop {
+          0%, 100% { transform: scale(1); }
+          50% { transform: scale(1.16); }
+        }
+        .topbar-bell-btn {
+          width: 48px;
+          height: 48px;
+          border-radius: 14px;
+          transition: background-color 0.2s ease, transform 0.2s ease;
+        }
+        .topbar-bell-btn.has-unread {
+          color: #1a5c3a;
+        }
+        .topbar-bell-btn.has-unread svg {
+          transform-origin: 50% 15%;
+          animation: kwBellRing 2.6s ease-in-out infinite;
+        }
+        .topbar-bell-btn .dot-count {
+          top: 3px;
+          right: 3px;
+          min-width: 20px;
+          height: 20px;
+          font-size: 11px;
+          background: #dc2626;
+          color: #fff;
+          box-shadow: 0 0 0 2px #f9f7f4;
+          animation: kwDotPop 1.8s ease-in-out infinite;
+        }
+        @media (prefers-reduced-motion: reduce) {
+          .topbar-bell-btn.has-unread svg,
+          .topbar-bell-btn .dot-count {
+            animation: none !important;
+          }
+        }
+      `}</style>
+      <button
+        className="icon-btn menu-btn"
+        type="button"
+        onClick={onOpenSidebar}
+        aria-label="Ouvrir le menu"
         aria-controls="sidebar"
       >
         <Icon name="bars-3" size={24} />
@@ -99,53 +188,56 @@ export const AppTopbar: React.FC<TopbarProps> = ({ title, subtitle, onOpenSideba
       </div>
 
       <div className="topbar-actions">
-        {/* Live Admin/Operator Search (admin.js) */}
         {(role === 'ADMIN' || role === 'OPERATOR') && (
           <div className="search admin-search" role="search" ref={searchContainerRef}>
             <Icon name="magnifying-glass" size={18} />
             <label className="sr-only" htmlFor="admin-search-all">
               {role === 'OPERATOR' ? 'Rechercher une mission' : 'Rechercher une demande ou un client'}
             </label>
-            <input 
-              id="admin-search-all" 
-              type="search" 
-              autoComplete="off" 
-              placeholder={role === 'OPERATOR' ? 'Mission, n° de suivi…' : 'Demande, client, n° de suivi…'} 
+            <input
+              id="admin-search-all"
+              type="search"
+              autoComplete="off"
+              placeholder={role === 'OPERATOR' ? 'Mission, n° de suivi…' : 'Demande, client, n° de suivi…'}
               value={searchQuery}
               onChange={(e) => {
                 setSearchQuery(e.target.value);
                 setShowSearchResults(true);
               }}
               onFocus={() => {
-                if (searchQuery.trim().length >= 2) setShowSearchResults(true);
+                if (needle.length >= 2) setShowSearchResults(true);
               }}
             />
 
             {showSearchResults && needle.length >= 2 && (
               <div className="search-results" id="admin-search-list">
-                {matchingRequests.length === 0 && matchingClients.length === 0 ? (
-                  <p className="search-empty">Aucun résultat pour « {searchQuery.trim()} ».</p>
+                {searching ? (
+                  <p className="search-empty">Recherche…</p>
+                ) : matchingRequests.length === 0 && matchingClients.length === 0 ? (
+                  <p className="search-empty">Aucun résultat pour « {needle} ».</p>
                 ) : (
                   <>
                     {matchingRequests.map(r => {
-                      const service = SERVICES.find(s => s.id === r.serviceId) || SERVICES[0];
+                      const service = r.service || services.find(s => s.slug === r.serviceSlug || s.id === r.serviceId);
                       return (
                         <button
                           key={r.id}
                           type="button"
                           className="search-result text-left w-full border-0 bg-transparent cursor-pointer p-0"
                           onClick={() => {
-                            navigate('admin-request-detail', r.id);
+                            navigate(role === 'OPERATOR' ? 'operator-mission-detail' : 'admin-request-detail', r.id);
                             setShowSearchResults(false);
                             setSearchQuery('');
                           }}
                         >
                           <span className="tile tile-sm">
-                            <Icon name={service.icon} size={18} />
+                            <Icon name={service?.icon || 'clipboard-document-list'} size={18} />
                           </span>
                           <span>
                             <strong>{r.title}</strong>
-                            <small>{r.tracking} · {r.status === 'pending' ? 'En attente' : r.status === 'active' ? 'En cours' : r.status === 'done' ? 'Terminée' : 'Annulée'}</small>
+                            <small>
+                              {r.tracking} · {r.status === 'pending' ? 'En attente' : r.status === 'active' ? 'En cours' : r.status === 'done' ? 'Terminée' : 'Annulée'}
+                            </small>
                           </span>
                         </button>
                       );
@@ -157,14 +249,17 @@ export const AppTopbar: React.FC<TopbarProps> = ({ title, subtitle, onOpenSideba
                         type="button"
                         className="search-result text-left w-full border-0 bg-transparent cursor-pointer p-0"
                         onClick={() => {
+                          setActiveClientId(c.id);
                           navigate('admin-clients');
                           setShowSearchResults(false);
                           setSearchQuery('');
                         }}
                       >
-                        <span className="avatar avatar-sm">{c.firstName[0]}{c.lastName[0]}</span>
+                        <span className="avatar avatar-sm">
+                          {`${c.firstName?.[0] || ''}${c.lastName?.[0] || ''}`.toUpperCase() || 'CL'}
+                        </span>
                         <span>
-                          <strong>{c.firstName} {c.lastName}</strong>
+                          <strong>{c.fullName || `${c.firstName} ${c.lastName}`}</strong>
                           <small>{c.email}</small>
                         </span>
                       </button>
@@ -179,56 +274,57 @@ export const AppTopbar: React.FC<TopbarProps> = ({ title, subtitle, onOpenSideba
         {actions}
 
         {/* Notifications Button & Dropdown */}
-        <div className="relative">
-          <button 
-            className="icon-btn" 
-            type="button" 
+        <div className="relative" ref={notifRef}>
+          <button
+            className={`icon-btn topbar-bell-btn ${unreadCount > 0 ? 'has-unread' : ''}`}
+            type="button"
             onClick={() => setShowNotifications(!showNotifications)}
             aria-label={`Notifications, ${unreadCount} non lues`}
           >
-            <Icon name="bell" size={22} />
+            <Icon name="bell" size={26} />
             {unreadCount > 0 && <span className="dot-count">{unreadCount}</span>}
           </button>
 
           {showNotifications && (
             <div className="absolute right-0 mt-2 w-80 sm:w-96 bg-white rounded-2xl shadow-xl border border-[#e0e8e4] py-2 z-50">
-              <div className="px-4 py-2 border-b border-[#e0e8e4] flex items-center justify-between">
+              <div className="px-4 py-2 border-b border-[#e0e8e4] flex items-center justify-between gap-2">
                 <strong className="text-sm">Notifications</strong>
-                <small className="muted">{unreadCount} non lue{unreadCount > 1 ? 's' : ''}</small>
+                <div className="flex items-center gap-2">
+                  <small className="muted">{unreadCount} non lue{unreadCount > 1 ? 's' : ''}</small>
+                  {unreadCount > 0 && (
+                    <button
+                      type="button"
+                      className="text-xs font-medium text-[#1b4d3e] hover:underline bg-transparent border-0 cursor-pointer p-0"
+                      onClick={() => markAllNotificationsRead()}
+                    >
+                      Tout lire
+                    </button>
+                  )}
+                </div>
               </div>
 
-              <div className="max-h-80 overflow-y-auto divide-y divide-neutral-100">
-                {userNotifs.length === 0 ? (
+              <div className="max-h-80 overflow-y-auto overflow-x-hidden divide-y divide-neutral-100">
+                {notifications.length === 0 ? (
                   <p className="p-4 text-center muted small">Aucune notification.</p>
                 ) : (
-                  userNotifs.map(n => (
+                  notifications.map(n => (
                     <div
                       key={n.id}
                       onClick={() => {
                         markNotificationRead(n.id);
                         setShowNotifications(false);
-                        if (n.href.includes('requests-detail/') || n.href.includes('admin-requests/')) {
-                          const id = n.href.split('/').pop();
-                          if (id) {
-                            navigate(role === 'ADMIN' ? 'admin-request-detail' : 'client-request-detail', id);
-                          }
-                        }
+                        navigateFromLink(n.href);
                       }}
-                      className={`p-3.5 hover:bg-neutral-50 cursor-pointer transition text-xs flex gap-3 ${
-                        !n.read ? 'bg-[#fdf6e0]/40' : ''
+                      className={`px-4 py-3 hover:bg-neutral-50 cursor-pointer transition ${
+                        !n.read ? 'bg-[#fdf6e0]/50' : ''
                       }`}
                     >
-                      <div className="mt-0.5">
-                        <Icon name={!n.read ? 'bolt' : 'check'} size={14} className={!n.read ? 'text-[#d4a017]' : 'text-neutral-400'} />
-                      </div>
-                      <div className="flex-1">
-                        <p className={`text-xs ${!n.read ? 'font-semibold text-[#1a1f1b]' : 'text-[#56635b]'}`}>
-                          {n.text}
-                        </p>
-                        <span className="text-[10px] text-neutral-400 mt-1 block">
-                          {new Date(n.at).toLocaleDateString('fr-FR', { hour: '2-digit', minute: '2-digit', day: 'numeric', month: 'short' })}
-                        </span>
-                      </div>
+                      <p className={`text-[13px] leading-snug whitespace-normal break-words ${!n.read ? 'font-semibold text-[#1a1f1b]' : 'text-[#56635b]'}`}>
+                        {n.text}
+                      </p>
+                      <span className="text-[11px] text-neutral-400 mt-1 block">
+                        {n.at ? new Date(n.at).toLocaleDateString('fr-FR', { hour: '2-digit', minute: '2-digit', day: 'numeric', month: 'short' }) : ''}
+                      </span>
                     </div>
                   ))
                 )}
@@ -240,4 +336,3 @@ export const AppTopbar: React.FC<TopbarProps> = ({ title, subtitle, onOpenSideba
     </header>
   );
 };
-

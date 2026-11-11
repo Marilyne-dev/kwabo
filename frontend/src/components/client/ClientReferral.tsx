@@ -1,9 +1,9 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { motion, useReducedMotion, type Variants } from 'motion/react';
 import { useApp } from '../../context/AppContext';
 import { Icon } from '../common/Icon';
+import { api } from '../../services/api';
 
-// Apparition en cascade : chaque bloc monte légèrement en fondu, l'un après l'autre.
 const container: Variants = {
   hidden: {},
   show: { transition: { staggerChildren: 0.1 } },
@@ -14,33 +14,83 @@ const item: Variants = {
   show: { opacity: 1, y: 0, transition: { duration: 0.45, ease: 'easeOut' } },
 };
 
-// Pour les listes : les éléments arrivent un par un après le bloc.
 const cascade: Variants = {
   hidden: {},
   show: { transition: { staggerChildren: 0.09, delayChildren: 0.2 } },
 };
 
+interface ReferralEntry {
+  name: string;
+  status: string;
+  joinedAt: string;
+}
+
 export const ClientReferral: React.FC = () => {
-  const { currentUser } = useApp();
+  const { currentUser, addToast } = useApp();
   const [copied, setCopied] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [referralCode, setReferralCode] = useState(currentUser?.referralCode || '');
+  const [shareText, setShareText] = useState('');
+  const [rewardPerActive, setRewardPerActive] = useState(10);
+  const [stats, setStats] = useState<{ referrals: number; active: number; rewards: number } | null>(null);
+  const [referrals, setReferrals] = useState<ReferralEntry[]>([]);
   const reduceMotion = useReducedMotion();
 
-  const referralCode = currentUser?.referralCode || 'KW-AICH01';
-  const shareText = `Je te recommande KWABO pour tes projets au Bénin. Mon code de parrainage : ${referralCode}`;
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    api<any>('/referrals')
+      .then((res) => {
+        if (cancelled) return;
+        const d = res?.data ?? res ?? {};
+        const code = d.code || currentUser?.referralCode || '';
+        setReferralCode(code);
+        setShareText(
+          d.share_text ||
+            `Je te recommande KWABO pour tes projets au Bénin. Mon code de parrainage : ${code}`
+        );
+        setRewardPerActive(Number(d.reward_per_referral ?? 10));
+        if (d.stats) {
+          setStats({
+            referrals: Number(d.stats.referrals ?? 0),
+            active: Number(d.stats.active ?? 0),
+            rewards: Number(d.stats.rewards ?? 0),
+          });
+        }
+        const list = Array.isArray(d.referrals) ? d.referrals : [];
+        setReferrals(
+          list.map((r: any) => ({
+            name: r.name || 'Filleul',
+            status: r.status || 'Inscrit',
+            joinedAt: r.joined_at || r.at || new Date().toISOString(),
+          }))
+        );
+      })
+      .catch(() => {
+        if (!cancelled) {
+          const code = currentUser?.referralCode || '';
+          setReferralCode(code);
+          setShareText(`Je te recommande KWABO pour tes projets au Bénin. Mon code de parrainage : ${code}`);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
 
-  const referrals = [
-    { name: 'Sylvie Mensah', at: '2024-03-01', status: 'Actif' },
-    { name: 'Christian Houndété', at: '2024-03-15', status: 'Actif' },
-    { name: 'Fabrice Kpadé', at: '2024-04-02', status: 'Inscrit' },
-  ];
+    return () => {
+      cancelled = true;
+    };
+  }, [currentUser?.referralCode]);
 
-  const activeCount = referrals.filter(r => r.status === 'Actif').length;
-  const rewardPerActive = 10;
+  const totalReferrals = stats ? stats.referrals : referrals.length;
+  const activeCount = stats ? stats.active : referrals.filter(r => r.status === 'Actif').length;
+  const rewardsTotal = stats ? stats.rewards : activeCount * rewardPerActive;
 
   const handleCopy = () => {
+    if (!referralCode) return;
     navigator.clipboard.writeText(referralCode);
     setCopied(true);
-    alert('Code copié dans le presse-papier !');
+    addToast('Code copié dans le presse-papier !', 'success');
     setTimeout(() => setCopied(false), 2500);
   };
 
@@ -61,7 +111,7 @@ export const ClientReferral: React.FC = () => {
             animate={copied ? { scale: [1, 1.08, 1] } : { scale: 1 }}
             transition={{ duration: 0.4 }}
           >
-            {referralCode}
+            {referralCode || '—'}
           </motion.p>
         </div>
         <div className="btn-row">
@@ -101,7 +151,7 @@ export const ClientReferral: React.FC = () => {
           <span className="tile tile-sm">
             <Icon name="user-group" size={18} />
           </span>
-          <strong>{referrals.length}</strong>
+          <strong>{totalReferrals}</strong>
           <span>Filleuls</span>
         </motion.li>
         <motion.li
@@ -123,34 +173,38 @@ export const ClientReferral: React.FC = () => {
           <span className="tile tile-sm">
             <Icon name="gift" size={18} />
           </span>
-          <strong>{activeCount * rewardPerActive} €</strong>
+          <strong>{rewardsTotal} €</strong>
           <span>Récompenses</span>
         </motion.li>
       </motion.ul>
-
-   
 
       {/* Dash grid */}
       <motion.div className="dash-grid" variants={item}>
         <section className="card">
           <h2>Mes filleuls</h2>
-          <motion.ul className="referral-list" variants={cascade}>
-            {referrals.map((r, idx) => {
-              const initials = r.name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase();
-              return (
-                <motion.li key={idx} variants={item}>
-                  <span className="avatar avatar-sm">{initials}</span>
-                  <span>
-                    <strong>{r.name}</strong>
-                    <small>Depuis le {new Date(r.at).toLocaleDateString('fr-FR')}</small>
-                  </span>
-                  <span className={`badge ${r.status === 'Actif' ? 'badge-green' : 'badge-neutral'}`}>
-                    {r.status}
-                  </span>
-                </motion.li>
-              );
-            })}
-          </motion.ul>
+          {loading ? (
+            <p className="muted">Chargement…</p>
+          ) : referrals.length === 0 ? (
+            <p className="muted">Aucun filleul pour le moment. Partagez votre code pour commencer !</p>
+          ) : (
+            <motion.ul className="referral-list" variants={cascade}>
+              {referrals.map((r, idx) => {
+                const initials = r.name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase() || 'FL';
+                return (
+                  <motion.li key={idx} variants={item}>
+                    <span className="avatar avatar-sm">{initials}</span>
+                    <span>
+                      <strong>{r.name}</strong>
+                      <small>Depuis le {new Date(r.joinedAt).toLocaleDateString('fr-FR')}</small>
+                    </span>
+                    <span className={`badge ${r.status === 'Actif' ? 'badge-green' : 'badge-neutral'}`}>
+                      {r.status}
+                    </span>
+                  </motion.li>
+                );
+              })}
+            </motion.ul>
+          )}
         </section>
 
         <section className="card">
@@ -158,7 +212,7 @@ export const ClientReferral: React.FC = () => {
           <ol className="mini-steps">
             <li>Partagez votre code à un proche.</li>
             <li>Il crée son compte avec votre code.</li>
-            <li>Sa première mission payée vous donne une récompense.</li>
+            <li>Sa première mission payée vous donne une récompense de {rewardPerActive} €.</li>
           </ol>
         </section>
       </motion.div>

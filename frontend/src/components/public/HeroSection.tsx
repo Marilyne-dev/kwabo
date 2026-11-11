@@ -157,7 +157,7 @@ export const HeroSection: React.FC = () => {
           </form>
 
           {/* Suggestions de services posées directement sur l'image */}
-          <div className="mt-6 flex max-w-[760px] mx-auto flex-wrap justify-center gap-2">
+          <div className="mt-6 flex max-w-[760px] mx-auto flex-wrap justify-center gap-2.5">
             {suggestedServices.map(label => (
               <button
                 key={label}
@@ -174,7 +174,10 @@ export const HeroSection: React.FC = () => {
           </div>
 
           {/* Garanties réassurance */}
-          <ul className="mt-7 flex flex-wrap justify-center gap-x-6 gap-y-3 text-xs sm:text-sm text-white drop-shadow">
+          <ul
+            className="flex flex-wrap justify-center gap-x-7 gap-y-3 text-xs sm:text-sm text-white drop-shadow"
+            style={{ marginTop: '2rem' }}
+          >
             <li className="inline-flex items-center gap-2">
               <CheckCircle2 aria-hidden="true" className="h-4 w-4 text-[#f5c842]" />
               Compte gratuit, sans engagement

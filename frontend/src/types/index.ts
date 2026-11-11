@@ -16,6 +16,7 @@ export interface User {
   role: UserRole;
   firstName: string;
   lastName: string;
+  fullName?: string;
   email: string;
   country: string;
   phone: string;
@@ -26,10 +27,15 @@ export interface User {
   referralCode: string;
   createdAt: string;
   suspended?: boolean;
+  requestsCount?: number;
+  paidTotal?: number;
+  activeMissionsCount?: number;
+  totalMissionsCount?: number;
 }
 
 export interface Category {
   id: string;
+  slug?: string;
   name: string;
   short: string;
   icon: string;
@@ -49,6 +55,8 @@ export interface ServiceField {
 
 export interface Service {
   id: string;
+  numericId?: number | string;
+  slug?: string;
   cat: string;
   name: string;
   icon: string;
@@ -60,6 +68,7 @@ export interface Service {
   fields: ServiceField[];
   photo: string;
   available?: boolean;
+  requestsCount?: number;
 }
 
 export type RequestStatus = 'pending' | 'active' | 'done' | 'cancelled';
@@ -75,11 +84,21 @@ export interface RequestQuote {
   label: string;
 }
 
+export interface RequestNote {
+  id: string;
+  author: string;
+  text: string;
+  at: string;
+}
+
 export interface RequestItem {
   id: string;
   tracking: string;
   userId: string;
   serviceId: string;
+  serviceSlug?: string;
+  serviceName?: string;
+  service?: Service | null;
   status: RequestStatus;
   title: string;
   city: string;
@@ -88,11 +107,18 @@ export interface RequestItem {
   description: string;
   details: Record<string, any>;
   operatorId: string | null;
+  operator?: User | null;
+  client?: User | null;
   quote: RequestQuote | null;
   rating: number | null;
   createdAt: string;
   history: RequestHistory[];
-  notes?: Array<{ id: string; author: string; text: string; at: string }>;
+  notes?: RequestNote[];
+  documents?: DocumentItem[];
+  invoices?: InvoiceItem[];
+  invoiceDue?: InvoiceItem | null;
+  review?: ReviewItem | null;
+  unreadMessages?: number;
 }
 
 export type Request = RequestItem;
@@ -109,6 +135,11 @@ export interface DocumentItem {
   url?: string;
 }
 
+export interface MessageAttachment {
+  name: string;
+  url: string;
+}
+
 export interface MessageItem {
   id: string;
   requestId: string;
@@ -117,25 +148,51 @@ export interface MessageItem {
   text: string;
   at: string;
   read: boolean;
-  attachment?: string;
+  attachment?: MessageAttachment | null;
+}
+
+export interface MessageThread {
+  requestId: string;
+  request: RequestItem;
+  lastMessage: MessageItem | null;
+  unread: number;
 }
 
 export interface InvoiceItem {
   id: string;
+  number?: string;
   requestId: string;
   userId: string;
+  clientName?: string;
+  client?: User | null;
   label: string;
   amount: number;
-  status: 'paid' | 'due' | 'refunded';
+  status: 'paid' | 'due' | 'refunded' | 'cancelled';
   method: 'card' | 'momo' | 'wise' | string | null;
   createdAt: string;
   paidAt: string | null;
+  request?: { id: string; tracking: string; title: string } | null;
+}
+
+export type Invoice = InvoiceItem;
+
+export interface PaymentMethodItem {
+  id: string;
+  type: string;
+  label: string;
+  icon?: string;
+  brand?: string;
+  last4?: string;
 }
 
 export interface ReviewItem {
   id: string;
   requestId: string;
+  requestTitle?: string;
+  request?: { id: string; tracking?: string; title?: string } | null;
   userId: string;
+  clientName?: string;
+  client?: User | null;
   rating: number;
   comment: string;
   status: 'published' | 'pending' | 'hidden';
@@ -148,6 +205,8 @@ export interface AuditItem {
   actor: string;
   text: string;
 }
+
+export type AuditLogItem = AuditItem;
 
 export interface ReferralRecord {
   name: string;
@@ -162,4 +221,11 @@ export interface NotificationItem {
   href: string;
   at: string;
   read: boolean;
+}
+
+export interface Counters {
+  unreadMessages: number;
+  unreadNotifications: number;
+  dueInvoices: number;
+  pendingReviews: number;
 }

@@ -1,39 +1,103 @@
-import React, { useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { useApp } from '../../context/AppContext';
+import { api, ApiError, getFirstValidationError } from '../../services/api';
+import { mapCatalog, mapServiceItem } from '../../services/mappers';
+import { Service } from '../../types';
 import { Icon } from '../common/Icon';
-import { SERVICES, CATEGORIES } from '../../data/kwaboData';
 
 export const AdminCatalog: React.FC = () => {
-  const { requests, addToast } = useApp();
-  const [catalogServices, setCatalogServices] = useState(SERVICES);
+  const { categories, addToast, refreshCatalog } = useApp();
+  const [catalogServices, setCatalogServices] = useState<Service[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [savingId, setSavingId] = useState<string | null>(null);
   const [editingServiceId, setEditingServiceId] = useState<string | null>(null);
   const [newPrice, setNewPrice] = useState('');
 
-  const handleToggleAvailable = (serviceId: string, current: boolean) => {
-    const updated = catalogServices.map(s => s.id === serviceId ? { ...s, available: !current } : s);
-    setCatalogServices(updated);
-    addToast(!current ? 'Service disponible sur le site et l\'application.' : 'Service retiré de la vitrine.');
+  const loadServices = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await api<any>('/admin/services');
+      const rawList = Array.isArray(res?.data) ? res.data : Array.isArray(res) ? res : [];
+      if (rawList.length > 0 && Array.isArray(rawList[0]?.services)) {
+        setCatalogServices(mapCatalog(rawList).services);
+      } else {
+        setCatalogServices(rawList.map((s: any) => mapServiceItem(s)));
+      }
+    } catch (err) {
+      addToast(err instanceof ApiError ? err.message : 'Impossible de charger le catalogue.', 'error');
+    } finally {
+      setLoading(false);
+    }
+  }, [addToast]);
+
+  useEffect(() => {
+    loadServices();
+  }, [loadServices]);
+
+  const handleToggleAvailable = async (service: Service) => {
+    const nextAvailable = !Boolean(service.available);
+    const targetId = service.numericId ?? service.id;
+    setSavingId(service.id);
+    try {
+      await api(`/admin/services/${targetId}`, {
+        method: 'PATCH',
+        body: { available: nextAvailable },
+      });
+      setCatalogServices(prev =>
+        prev.map(s => (s.id === service.id ? { ...s, available: nextAvailable } : s))
+      );
+      addToast(
+        nextAvailable
+          ? "Service disponible sur le site et l'application."
+          : 'Service retiré de la vitrine.'
+      );
+      await refreshCatalog();
+    } catch (err) {
+      addToast(err instanceof ApiError ? getFirstValidationError(err) : 'Mise à jour impossible.', 'error');
+    } finally {
+      setSavingId(null);
+    }
   };
 
-  const handleOpenEditPrice = (s: typeof SERVICES[0]) => {
+  const handleOpenEditPrice = (s: Service) => {
     setEditingServiceId(s.id);
     setNewPrice(s.price);
   };
 
-  const handleSavePrice = (e: React.FormEvent) => {
+  const handleSavePrice = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newPrice.trim()) return;
-    setCatalogServices(prev => prev.map(s => s.id === editingServiceId ? { ...s, price: newPrice.trim() } : s));
-    setEditingServiceId(null);
-    addToast('Tarif mis à jour.');
+    if (!newPrice.trim() || !editingService) return;
+    const targetId = editingService.numericId ?? editingService.id;
+    setSavingId(editingService.id);
+    try {
+      await api(`/admin/services/${targetId}`, {
+        method: 'PATCH',
+        body: { price_label: newPrice.trim() },
+      });
+      setCatalogServices(prev =>
+        prev.map(s => (s.id === editingService.id ? { ...s, price: newPrice.trim() } : s))
+      );
+      setEditingServiceId(null);
+      addToast('Tarif mis à jour.');
+      await refreshCatalog();
+    } catch (err) {
+      addToast(err instanceof ApiError ? getFirstValidationError(err) : 'Mise à jour impossible.', 'error');
+    } finally {
+      setSavingId(null);
+    }
   };
 
   const editingService = catalogServices.find(s => s.id === editingServiceId);
 
+  if (loading && catalogServices.length === 0) {
+    return <div className="empty">Chargement du catalogue…</div>;
+  }
+
   return (
     <>
-      {CATEGORIES.map(c => {
+      {categories.map(c => {
         const catServices = catalogServices.filter(s => s.cat === c.id);
+        if (catServices.length === 0) return null;
 
         return (
           <section key={c.id} className="card">
@@ -50,44 +114,41 @@ export const AdminCatalog: React.FC = () => {
                   </tr>
                 </thead>
                 <tbody>
-                  {catServices.map(s => {
-                    const reqCount = requests.filter(r => r.serviceId === s.id).length;
-
-                    return (
-                      <tr key={s.id}>
-                        <td data-label="Service">
-                          <span className="client-mini">
-                            <span className={`tile tile-sm cat-${s.cat}`}>
-                              <Icon name={s.icon} size={18} />
-                            </span>
-                            <strong>{s.name}</strong>
+                  {catServices.map(s => (
+                    <tr key={s.id}>
+                      <td data-label="Service">
+                        <span className="client-mini">
+                          <span className={`tile tile-sm cat-${s.cat}`}>
+                            <Icon name={s.icon} size={18} />
                           </span>
-                        </td>
-                        <td data-label="Tarif">{s.price}</td>
-                        <td data-label="Demandes">{reqCount}</td>
-                        <td data-label="Disponible">
-                          <label className="switch switch-inline">
-                            <span className="sr-only">{s.name} disponible</span>
-                            <input
-                              type="checkbox"
-                              checked={Boolean(s.available)}
-                              onChange={() => handleToggleAvailable(s.id, Boolean(s.available))}
-                            />
-                            <span className="switch-track" aria-hidden="true" />
-                          </label>
-                        </td>
-                        <td className="td-action">
-                          <button
-                            className="btn btn-ghost btn-sm"
-                            type="button"
-                            onClick={() => handleOpenEditPrice(s)}
-                          >
-                            Modifier le tarif
-                          </button>
-                        </td>
-                      </tr>
-                    );
-                  })}
+                          <strong>{s.name}</strong>
+                        </span>
+                      </td>
+                      <td data-label="Tarif">{s.price}</td>
+                      <td data-label="Demandes">{s.requestsCount ?? 0}</td>
+                      <td data-label="Disponible">
+                        <label className="switch switch-inline">
+                          <span className="sr-only">{s.name} disponible</span>
+                          <input
+                            type="checkbox"
+                            checked={Boolean(s.available)}
+                            disabled={savingId === s.id}
+                            onChange={() => handleToggleAvailable(s)}
+                          />
+                          <span className="switch-track" aria-hidden="true" />
+                        </label>
+                      </td>
+                      <td className="td-action">
+                        <button
+                          className="btn btn-ghost btn-sm"
+                          type="button"
+                          onClick={() => handleOpenEditPrice(s)}
+                        >
+                          Modifier le tarif
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
                 </tbody>
               </table>
             </div>
@@ -125,8 +186,9 @@ export const AdminCatalog: React.FC = () => {
                 <button
                   className="btn btn-primary"
                   type="submit"
+                  disabled={savingId === editingService.id}
                 >
-                  Enregistrer
+                  {savingId === editingService.id ? 'Enregistrement…' : 'Enregistrer'}
                 </button>
               </div>
             </form>

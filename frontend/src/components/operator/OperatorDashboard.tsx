@@ -1,7 +1,11 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { useApp } from '../../context/AppContext';
 import { Icon } from '../common/Icon';
-import { SERVICES, DOC_TYPE_META } from '../../data/kwaboData';
+import { CategoryBreakdownCard, CategoryBreakdownRow } from '../common/CategoryBreakdownCard';
+import { DOC_TYPE_META } from '../../data/kwaboData';
+import { api } from '../../services/api';
+import { mapDocument, mapRequest } from '../../services/mappers';
+import { DocumentItem, RequestItem } from '../../types';
 
 /* Animations ajoutées (CSS uniquement, aucune logique modifiée) */
 const OPERATOR_DASHBOARD_ANIMATIONS = `
@@ -50,6 +54,62 @@ const OPERATOR_DASHBOARD_ANIMATIONS = `
 .kw-stat strong {
   display: inline-block;
   animation: kwValueIn 0.6s ease both;
+}
+
+/* Cartes de statistiques : une couleur par carte, texte blanc, sans soulignement */
+.stats .kw-stat {
+  position: relative;
+  overflow: hidden;
+  border: none !important;
+  box-shadow: 0 8px 20px rgba(18, 63, 40, 0.25);
+  transition: transform 0.25s ease, box-shadow 0.25s ease;
+}
+.stats .kw-stat::after {
+  content: '';
+  position: absolute;
+  right: -28px;
+  bottom: -34px;
+  width: 110px;
+  height: 110px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.12);
+  pointer-events: none;
+  transition: transform 0.5s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.stats .kw-stat:hover::after {
+  transform: scale(1.35);
+}
+.stats .kw-stat,
+.stats .kw-stat * {
+  color: #ffffff !important;
+}
+.stats .kw-stat a,
+.stats .kw-stat a:hover,
+.stats .kw-stat a:focus {
+  text-decoration: none !important;
+}
+.stats .kw-stat .tile {
+  background: rgba(255, 255, 255, 0.2) !important;
+}
+.stats .kw-stat:hover {
+  box-shadow: 0 14px 28px rgba(18, 63, 40, 0.35);
+}
+
+/* 1. Vert profond */
+.stats .kw-stat:nth-child(1) {
+  background: linear-gradient(135deg, #1a5c38 0%, #123f28 100%) !important;
+}
+/* 2. Vert franc */
+.stats .kw-stat:nth-child(2) {
+  background: linear-gradient(135deg, #3a8a5c 0%, #2a7048 100%) !important;
+}
+/* 3. Or foncé */
+.stats .kw-stat:nth-child(3) {
+  background: linear-gradient(135deg, #b8860b 0%, #8f6a08 100%) !important;
+}
+/* 4. Ardoise */
+.stats .kw-stat:nth-child(4) {
+  background: linear-gradient(135deg, #455a4f 0%, #2f4036 100%) !important;
 }
 
 /* Cartes */
@@ -123,29 +183,105 @@ const OPERATOR_DASHBOARD_ANIMATIONS = `
 }
 `;
 
+interface OperatorWorkItem {
+  r: RequestItem;
+  reasons: Array<[string, string]>;
+}
+
+function reasonIconFromCode(code: string): string {
+  switch (code) {
+    case 'messages':
+    case 'unread_messages':
+      return 'chat-bubble-left-right';
+    case 'report':
+    case 'needs_report':
+    default:
+      return 'document-text';
+  }
+}
+
 export const OperatorDashboard: React.FC = () => {
-  const { currentUser, requests, users, documents, messages, navigate, openPhotoModal, addToast } = useApp();
+  const { categories, services, navigate, openPhotoModal, downloadDocument } = useApp();
+  const [loading, setLoading] = useState(true);
+  const [stats, setStats] = useState({ assigned: 0, pending: 0, active: 0, done: 0 });
+  const [pendingWork, setPendingWork] = useState<OperatorWorkItem[]>([]);
+  const [docs, setDocs] = useState<DocumentItem[]>([]);
+  const [catRows, setCatRows] = useState<CategoryBreakdownRow[]>([]);
 
-  const assigned = requests.filter(r => r.operatorId === currentUser?.id);
-  const count = (status: string) => assigned.filter(r => r.status === status).length;
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    api<any>('/admin/dashboard')
+      .then(async (res) => {
+        if (cancelled) return;
+        const d = res?.data ?? res ?? {};
+        const st = d.stats ?? {};
+        setStats({
+          assigned: Number(st.assigned ?? 0),
+          pending: Number(st.pending ?? 0),
+          active: Number(st.active ?? 0),
+          done: Number(st.done ?? 0),
+        });
 
-  const docs = documents
-    .filter(d => assigned.some(r => r.id === d.requestId))
-    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
-    .slice(0, 4);
+        const rawWork = Array.isArray(d.work) ? d.work : [];
+        setPendingWork(
+          rawWork.map((w: any) => {
+            const req = mapRequest(w.request ?? w);
+            const rawReasons = Array.isArray(w.reasons) ? w.reasons : [];
+            const reasons: Array<[string, string]> = rawReasons.map((rs: any) => {
+              if (Array.isArray(rs)) return [String(rs[0]), String(rs[1])];
+              return [reasonIconFromCode(String(rs?.code ?? '')), String(rs?.label ?? rs?.code ?? '')];
+            });
+            return { r: req, reasons };
+          })
+        );
 
-  // Pending work for operator
-  const pendingWork = assigned
-    .filter(r => ['pending', 'active'].includes(r.status))
-    .map(r => {
-      const reasons: [string, string][] = [];
-      const unread = messages.filter(m => m.requestId === r.id && m.from === 'client' && !m.read).length;
-      if (unread > 0) reasons.push(['chat-bubble-left-right', `${unread} message${unread > 1 ? 's' : ''}`]);
-      if (r.status === 'active' && !reasons.length) reasons.push(['document-text', 'Rapport à déposer']);
-      return { r, reasons };
-    })
-    .filter(w => w.reasons.length > 0)
-    .sort((a, b) => (b.r.urgency === 'urgent' ? 1 : 0) - (a.r.urgency === 'urgent' ? 1 : 0));
+        const rawDocs = Array.isArray(d.recent_documents) ? d.recent_documents : [];
+        setDocs(rawDocs.map((doc: any) => mapDocument(doc)));
+
+        const rawCats = Array.isArray(d.by_category) ? d.by_category : [];
+        if (rawCats.length > 0) {
+          setCatRows(
+            rawCats.map((item: any) => {
+              const slug = String(item.slug ?? item.category ?? item.id ?? '');
+              const matched = categories.find(c => c.id === slug || c.slug === slug);
+              return {
+                c: {
+                  id: slug || matched?.id || String(item.name),
+                  name: item.name || matched?.name || slug,
+                  short: item.short || matched?.short || item.name || slug,
+                },
+                value: Number(item.count ?? item.value ?? item.total ?? 0),
+              };
+            })
+          );
+        } else {
+          // Fallback: compute category breakdown from assigned requests if API omitted by_category
+          const reqRes = await api<any>('/admin/requests', { params: { per_page: 200 } }).catch(() => null);
+          if (cancelled) return;
+          const reqList = Array.isArray(reqRes?.data)
+            ? reqRes.data.map(mapRequest)
+            : rawWork.map((w: any) => mapRequest(w.request ?? w));
+          setCatRows(
+            categories.map((c) => {
+              const value = reqList.filter((req: RequestItem) => {
+                const srv = req.service || services.find(s => s.slug === req.serviceSlug || s.id === req.serviceId);
+                return (srv?.cat || '') === c.id;
+              }).length;
+              return { c: { id: c.id, name: c.name, short: c.short }, value };
+            })
+          );
+        }
+      })
+      .catch(() => {})
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [categories, services]);
 
   const formatDate = (iso: string) => {
     const d = new Date(iso);
@@ -162,28 +298,28 @@ export const OperatorDashboard: React.FC = () => {
           <span className="tile tile-sm">
             <Icon name="clipboard-document-list" size={18} />
           </span>
-          <strong style={{ animationDelay: '0.45s' }}>{assigned.length}</strong>
+          <strong style={{ animationDelay: '0.45s' }}>{stats.assigned}</strong>
           <span>Missions attribuées</span>
         </li>
         <li className="stat stat-gold kw-stat" style={{ animationDelay: '0.2s' }}>
           <span className="tile tile-sm">
             <Icon name="clock" size={18} />
           </span>
-          <strong style={{ animationDelay: '0.55s' }}>{count('pending')}</strong>
+          <strong style={{ animationDelay: '0.55s' }}>{stats.pending}</strong>
           <span>En attente</span>
         </li>
         <li className="stat stat-green kw-stat" style={{ animationDelay: '0.3s' }}>
           <span className="tile tile-sm">
             <Icon name="bolt" size={18} />
           </span>
-          <strong style={{ animationDelay: '0.65s' }}>{count('active')}</strong>
+          <strong style={{ animationDelay: '0.65s' }}>{stats.active}</strong>
           <span>En cours</span>
         </li>
         <li className="stat stat-neutral kw-stat" style={{ animationDelay: '0.4s' }}>
           <span className="tile tile-sm">
             <Icon name="check-circle" size={18} />
           </span>
-          <strong style={{ animationDelay: '0.75s' }}>{count('done')}</strong>
+          <strong style={{ animationDelay: '0.75s' }}>{stats.done}</strong>
           <span>Terminées</span>
         </li>
       </ul>
@@ -199,7 +335,9 @@ export const OperatorDashboard: React.FC = () => {
             </a>
           </div>
 
-          {pendingWork.length === 0 ? (
+          {loading ? (
+            <p className="muted">Chargement…</p>
+          ) : pendingWork.length === 0 ? (
             <div className="empty-state">
               <span className="tile tile-lg">
                 <Icon name="check-circle" size={32} />
@@ -210,8 +348,10 @@ export const OperatorDashboard: React.FC = () => {
           ) : (
             <div className="request-list">
               {pendingWork.map(({ r, reasons }, rowIdx) => {
-                const s = SERVICES.find(srv => srv.id === r.serviceId) || SERVICES[0];
-                const client = users.find(u => u.id === r.userId);
+                const s = r.service || services.find(srv => srv.slug === r.serviceSlug || srv.id === r.serviceId);
+                const clientName = r.client
+                  ? (r.client.fullName || `${r.client.firstName} ${r.client.lastName}`.trim())
+                  : 'Client';
 
                 return (
                   <a
@@ -224,12 +364,12 @@ export const OperatorDashboard: React.FC = () => {
                       navigate('admin-request-detail', r.id);
                     }}
                   >
-                    <span className={`tile cat-${s.cat}`}>
-                      <Icon name={s.icon} size={20} />
+                    <span className={`tile cat-${s?.cat || 'demarches'}`}>
+                      <Icon name={s?.icon || 'clipboard-document-list'} size={20} />
                     </span>
                     <span className="request-row-main">
                       <strong>{r.title}</strong>
-                      <small>{r.tracking} · {client ? `${client.firstName} ${client.lastName}` : 'Client'}</small>
+                      <small>{r.tracking} · {clientName}</small>
                       <span className="reasons">
                         {r.urgency === 'urgent' && (
                           <span className="badge badge-red">
@@ -261,8 +401,8 @@ export const OperatorDashboard: React.FC = () => {
           ) : (
             <ul className="doc-list">
               {docs.map((d, idx) => {
-                const meta = DOC_TYPE_META[d.type];
-                const service = SERVICES.find(s => s.id === d.requestId) || SERVICES[0];
+                const meta = DOC_TYPE_META[d.type] || DOC_TYPE_META.report;
+                const downloadPath = `/documents/${d.id}/download`;
                 return (
                   <li
                     key={d.id}
@@ -280,7 +420,7 @@ export const OperatorDashboard: React.FC = () => {
                       className="icon-btn"
                       type="button"
                       title="Voir"
-                      onClick={() => openPhotoModal(d.name, d.photoName ? `/assets/photos/${d.photoName}.jpg` : service.photo)}
+                      onClick={() => openPhotoModal(downloadPath, d.name, downloadPath, true)}
                     >
                       <Icon name="eye" size={18} />
                     </button>
@@ -288,7 +428,7 @@ export const OperatorDashboard: React.FC = () => {
                       className="icon-btn"
                       type="button"
                       title="Télécharger"
-                      onClick={() => addToast(`Téléchargement de ${d.name}...`)}
+                      onClick={() => downloadDocument(downloadPath, d.name)}
                     >
                       <Icon name="arrow-down-tray" size={18} />
                     </button>
@@ -299,6 +439,16 @@ export const OperatorDashboard: React.FC = () => {
           )}
         </section>
       </div>
+
+      <CategoryBreakdownCard
+        title="Demandes par univers"
+        rows={catRows}
+        defaultView="chart"
+        unitSingular="mission"
+        unitPlural="missions"
+        className="kw-card"
+        style={{ animationDelay: '0.7s' }}
+      />
     </>
   );
 };

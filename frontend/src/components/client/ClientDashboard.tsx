@@ -1,7 +1,16 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { useApp } from '../../context/AppContext';
 import { Icon } from '../common/Icon';
-import { SERVICES, CATEGORIES, STATUS_MAP, DOC_TYPE_META } from '../../data/kwaboData';
+import { STATUS_MAP, DOC_TYPE_META, SERVICES } from '../../data/kwaboData';
+import { api } from '../../services/api';
+import {
+  mapDocument,
+  mapInvoice,
+  mapNotification,
+  mapRequest,
+  mapServiceItem,
+} from '../../services/mappers';
+import { DocumentItem, InvoiceItem, NotificationItem, RequestItem, Service } from '../../types';
 
 /* Animations ajoutées (CSS uniquement, aucune logique modifiée) */
 const DASHBOARD_ANIMATIONS = `
@@ -82,6 +91,62 @@ const DASHBOARD_ANIMATIONS = `
 }
 .kw-stat:hover .tile {
   transform: scale(1.15) rotate(-6deg);
+}
+
+/* Cartes de statistiques : une couleur par carte, texte blanc, sans soulignement */
+.stats .kw-stat {
+  position: relative;
+  overflow: hidden;
+  border: none !important;
+  box-shadow: 0 8px 20px rgba(18, 63, 40, 0.25);
+  transition: transform 0.25s ease, box-shadow 0.25s ease;
+}
+.stats .kw-stat::after {
+  content: '';
+  position: absolute;
+  right: -28px;
+  bottom: -34px;
+  width: 110px;
+  height: 110px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.12);
+  pointer-events: none;
+  transition: transform 0.5s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.stats .kw-stat:hover::after {
+  transform: scale(1.35);
+}
+.stats .kw-stat,
+.stats .kw-stat * {
+  color: #ffffff !important;
+}
+.stats .kw-stat a,
+.stats .kw-stat a:hover,
+.stats .kw-stat a:focus {
+  text-decoration: none !important;
+}
+.stats .kw-stat .tile {
+  background: rgba(255, 255, 255, 0.2) !important;
+}
+.stats .kw-stat:hover {
+  box-shadow: 0 14px 28px rgba(18, 63, 40, 0.35);
+}
+
+/* 1. Vert profond */
+.stats .kw-stat:nth-child(1) {
+  background: linear-gradient(135deg, #1a5c38 0%, #123f28 100%) !important;
+}
+/* 2. Vert franc */
+.stats .kw-stat:nth-child(2) {
+  background: linear-gradient(135deg, #3a8a5c 0%, #2a7048 100%) !important;
+}
+/* 3. Or foncé */
+.stats .kw-stat:nth-child(3) {
+  background: linear-gradient(135deg, #b8860b 0%, #8f6a08 100%) !important;
+}
+/* 4. Ardoise */
+.stats .kw-stat:nth-child(4) {
+  background: linear-gradient(135deg, #455a4f 0%, #2f4036 100%) !important;
 }
 
 /* Alerte devis */
@@ -176,17 +241,80 @@ const DASHBOARD_ANIMATIONS = `
 `;
 
 export const ClientDashboard: React.FC = () => {
-  const { currentUser, requests, documents, invoices, notifications, navigate, openPhotoModal, addToast } = useApp();
+  const {
+    currentUser,
+    services,
+    categories,
+    notifications: globalNotifications,
+    navigate,
+    setPendingServiceSlug,
+    openPhotoModal,
+    downloadDocument,
+  } = useApp();
 
-  const userRequests = requests.filter(r => r.userId === currentUser?.id);
-  const count = (status: string) => userRequests.filter(r => r.status === status).length;
-  const active = userRequests.find(r => r.status === 'active');
-  const dueInvoices = invoices.filter(i => i.userId === currentUser?.id && i.status === 'due');
-  const userNotifs = notifications.filter(n => n.userId === currentUser?.id && !n.read);
-  const lastDocs = documents
-    .filter(d => userRequests.some(r => r.id === d.requestId))
-    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
-    .slice(0, 3);
+  const [recentRequests, setRecentRequests] = useState<RequestItem[]>([]);
+  const [allCounts, setAllCounts] = useState({ total: 0, pending: 0, active: 0, done: 0 });
+  const [active, setActive] = useState<RequestItem | null>(null);
+  const [dueInvoices, setDueInvoices] = useState<InvoiceItem[]>([]);
+  const [dashNotifs, setDashNotifs] = useState<NotificationItem[]>([]);
+  const [lastDocs, setLastDocs] = useState<DocumentItem[]>([]);
+  const [popularServices, setPopularServices] = useState<Service[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+
+    Promise.all([
+      api<any>('/dashboard'),
+      api<any>('/requests', { params: { per_page: 200 } }).catch(() => null),
+    ])
+      .then(([dashRes, reqRes]) => {
+        if (cancelled) return;
+        const d = dashRes?.data ?? dashRes ?? {};
+        const recReqs = Array.isArray(d.recent_requests) ? d.recent_requests.map(mapRequest) : [];
+        setRecentRequests(recReqs);
+
+        const rawActive = d.active_mission?.request ?? d.active_mission ?? null;
+        setActive(rawActive ? mapRequest(rawActive) : null);
+
+        setDueInvoices(Array.isArray(d.due_invoices) ? d.due_invoices.map(mapInvoice) : []);
+        setDashNotifs(Array.isArray(d.notifications) ? d.notifications.map(mapNotification) : []);
+        setLastDocs(Array.isArray(d.recent_documents) ? d.recent_documents.map((doc: any) => mapDocument(doc)) : []);
+        setPopularServices(
+          Array.isArray(d.popular_services) && d.popular_services.length > 0
+            ? d.popular_services.map((s: any) => mapServiceItem(s))
+            : services.filter(s => s.popular && s.available).slice(0, 4)
+        );
+
+        const reqList = Array.isArray(reqRes?.data) ? reqRes.data.map(mapRequest) : recReqs;
+        if (d.stats) {
+          setAllCounts({
+            total: Number(d.stats.total ?? reqList.length),
+            pending: Number(d.stats.pending ?? 0),
+            active: Number(d.stats.active ?? 0),
+            done: Number(d.stats.done ?? 0),
+          });
+        } else {
+          setAllCounts({
+            total: reqList.length,
+            pending: reqList.filter((r: RequestItem) => r.status === 'pending').length,
+            active: reqList.filter((r: RequestItem) => r.status === 'active').length,
+            done: reqList.filter((r: RequestItem) => r.status === 'done').length,
+          });
+        }
+      })
+      .catch(() => {})
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [services]);
+
+  const userNotifs = dashNotifs.length > 0 ? dashNotifs : globalNotifications.filter(n => !n.read);
 
   const formatMoney = (n: number) => {
     return new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 }).format(n);
@@ -259,28 +387,28 @@ export const ClientDashboard: React.FC = () => {
           <span className="tile tile-sm">
             <Icon name="clipboard-document-list" size={18} />
           </span>
-          <strong>{userRequests.length}</strong>
+          <strong>{allCounts.total}</strong>
           <span>Demandes au total</span>
         </li>
         <li className="stat stat-gold kw-stat" style={{ animationDelay: '1.8s' }}>
           <span className="tile tile-sm">
             <Icon name="clock" size={18} />
           </span>
-          <strong>{count('pending')}</strong>
+          <strong>{allCounts.pending}</strong>
           <span>En attente</span>
         </li>
         <li className="stat stat-green kw-stat" style={{ animationDelay: '1.9s' }}>
           <span className="tile tile-sm">
             <Icon name="bolt" size={18} />
           </span>
-          <strong>{count('active')}</strong>
+          <strong>{allCounts.active}</strong>
           <span>En cours</span>
         </li>
         <li className="stat stat-neutral kw-stat" style={{ animationDelay: '2s' }}>
           <span className="tile tile-sm">
             <Icon name="check-circle" size={18} />
           </span>
-          <strong>{count('done')}</strong>
+          <strong>{allCounts.done}</strong>
           <span>Terminées</span>
         </li>
       </ul>
@@ -318,7 +446,9 @@ export const ClientDashboard: React.FC = () => {
               </a>
             </div>
 
-            {userRequests.length === 0 ? (
+            {loading ? (
+              <p className="muted">Chargement…</p>
+            ) : recentRequests.length === 0 ? (
               <div className="empty-state">
                 <span className="tile tile-lg">
                   <Icon name="clipboard-document-list" size={32} />
@@ -337,8 +467,8 @@ export const ClientDashboard: React.FC = () => {
               </div>
             ) : (
               <div className="request-list">
-                {userRequests.slice(0, 3).map((r, idx) => {
-                  const s = SERVICES.find(srv => srv.id === r.serviceId) || SERVICES[0];
+                {recentRequests.slice(0, 3).map((r, idx) => {
+                  const s = r.service || services.find(srv => srv.slug === r.serviceSlug || srv.id === r.serviceId);
                   return (
                     <a
                       key={r.id}
@@ -350,8 +480,8 @@ export const ClientDashboard: React.FC = () => {
                         navigate('client-request-detail', r.id);
                       }}
                     >
-                      <span className={`tile cat-${s.cat}`}>
-                        <Icon name={s.icon} size={20} />
+                      <span className={`tile cat-${s?.cat || 'demarches'}`}>
+                        <Icon name={s?.icon || 'clipboard-document-list'} size={20} />
                       </span>
                       <span className="request-row-main">
                         <strong>{r.title}</strong>
@@ -462,7 +592,8 @@ export const ClientDashboard: React.FC = () => {
               </div>
               <ul className="doc-list">
                 {lastDocs.map((d, idx) => {
-                  const meta = DOC_TYPE_META[d.type];
+                  const meta = DOC_TYPE_META[d.type] || DOC_TYPE_META.report;
+                  const downloadPath = `/documents/${d.id}/download`;
                   return (
                     <li
                       key={d.id}
@@ -480,7 +611,7 @@ export const ClientDashboard: React.FC = () => {
                         className="icon-btn"
                         type="button"
                         title="Voir"
-                        onClick={() => openPhotoModal(d.name, d.photoName ? `/assets/photos/${d.photoName}.jpg` : '/assets/photos/chantier-tour.jpg')}
+                        onClick={() => openPhotoModal(downloadPath, d.name, downloadPath, true)}
                       >
                         <Icon name="eye" size={18} />
                       </button>
@@ -488,7 +619,7 @@ export const ClientDashboard: React.FC = () => {
                         className="icon-btn"
                         type="button"
                         title="Télécharger"
-                        onClick={() => addToast(`Téléchargement de ${d.name}...`)}
+                        onClick={() => downloadDocument(downloadPath, d.name)}
                       >
                         <Icon name="arrow-down-tray" size={18} />
                       </button>
@@ -510,21 +641,36 @@ export const ClientDashboard: React.FC = () => {
           </a>
         </div>
         <div className="service-grid service-grid-compact">
-          {SERVICES.filter(s => s.popular && s.available).slice(0, 4).map((s, idx) => {
-            const cat = CATEGORIES.find(c => c.id === s.cat);
+          {(popularServices.length > 0 ? popularServices : services.filter(s => s.popular && s.available)).slice(0, 4).map((s, idx) => {
+            const cat = categories.find(c => c.id === s.cat);
+            const fallbackPhoto = SERVICES.find(srv => srv.id === (s.slug || s.id))?.photo;
+            const photoSrc = s.photo || fallbackPhoto || '/assets/photos/chantier-500.jpg';
             return (
               <a
                 key={s.id}
                 className="service-card kw-service"
                 style={{ animationDelay: `${2.9 + idx * 0.12}s` }}
-                href={`#/espace/nouvelle-demande?service=${s.id}`}
+                href={`#/espace/nouvelle-demande?service=${s.slug || s.id}`}
                 onClick={(e) => {
                   e.preventDefault();
-                  navigate('client-new-request', s.id);
+                  setPendingServiceSlug(s.slug || s.id);
+                  navigate('client-new-request');
                 }}
               >
-                <span className={`service-card-top cat-${s.cat}`}>
-                  <Icon name={s.icon} size={26} />
+                <span className={`service-card-top cat-${s.cat}`} style={{ padding: '12px 18px' }}>
+                  <img
+                    src={photoSrc}
+                    alt={s.name}
+                    style={{
+                      width: 44,
+                      height: 44,
+                      borderRadius: 10,
+                      objectFit: 'cover',
+                      flexShrink: 0,
+                      border: '1.5px solid rgba(255, 255, 255, 0.75)',
+                      boxShadow: '0 2px 6px rgba(0, 0, 0, 0.12)',
+                    }}
+                  />
                   <span className="service-card-cat">{cat?.short}</span>
                 </span>
                 <span className="service-card-body">
