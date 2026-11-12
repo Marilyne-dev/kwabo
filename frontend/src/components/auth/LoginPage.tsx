@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Eye, EyeOff, ShieldCheck, MailCheck, LockKeyhole } from 'lucide-react';
+import { Eye, EyeOff, ShieldCheck, MailCheck } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import { AuthPageLayout } from './AuthPageLayout';
 
@@ -180,16 +180,10 @@ export const LoginPage: React.FC<LoginPageProps> = ({ mode = 'client' }) => {
 
   return (
     <AuthPageLayout>
-      {isTeam && (
-        <div className="mb-3 inline-flex items-center gap-1.5 rounded-full bg-[#e8f5ee] px-3 py-1 text-xs font-semibold text-[#1a5c3a]">
-          <LockKeyhole className="h-3.5 w-3.5" />
-          <span>{isAdmin ? 'Accès Administration' : 'Accès Agent terrain'}</span>
-        </div>
-      )}
       <h2
         className={
           isTeam
-            ? 'font-display text-xl font-semibold tracking-tight text-[#1a1f1b] sm:text-2xl'
+            ? 'font-display text-lg font-semibold tracking-tight text-[#1a1f1b] sm:text-xl'
             : 'font-display text-3xl font-semibold tracking-tight text-[#1a1f1b] sm:text-[34px]'
         }
       >

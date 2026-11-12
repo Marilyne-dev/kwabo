@@ -55,10 +55,10 @@ export const AuthPageLayout: React.FC<Props> = ({ children }) => {
             className="inline-flex w-fit items-center gap-2.5 transition hover:opacity-90"
             aria-label="KWABO, retour à l'accueil"
           >
-            <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#f5c842] font-display text-xl font-bold text-[#123f28] shadow-md lg:h-11 lg:w-11 lg:text-2xl">
+            <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#f5c842] font-display text-base font-bold text-[#123f28] shadow-md lg:h-9 lg:w-9 lg:text-lg">
               K
             </span>
-            <span className="font-display text-xl font-bold tracking-wide text-white lg:text-2xl">
+            <span className="font-display text-base font-bold tracking-wide text-white lg:text-lg">
               KWABO<span className="text-[#f5c842]">.</span>
             </span>
           </button>
