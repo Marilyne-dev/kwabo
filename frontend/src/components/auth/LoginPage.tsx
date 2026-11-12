@@ -8,12 +8,15 @@ interface LoginPageProps {
 }
 
 export const LoginPage: React.FC<LoginPageProps> = ({ mode = 'client' }) => {
-  const { login, enterDevPreview, verifyEmail, resendVerificationEmail, navigate, addToast } = useApp();
+  const { currentUser, role, login, enterDevPreview, verifyEmail, resendVerificationEmail, navigate, addToast } = useApp();
   const isClient = mode === 'client';
   const isAdmin = mode === 'admin';
   const isOperator = mode === 'operator';
   const isTeam = isAdmin || isOperator;
   const expectedRole = isAdmin ? 'ADMIN' : isOperator ? 'OPERATOR' : 'USER';
+  const hasOtherActiveSession = Boolean(currentUser && role !== 'VISITOR' && role !== expectedRole);
+  const currentDashboardView =
+    role === 'ADMIN' ? 'admin-dashboard' : role === 'OPERATOR' ? 'operator-dashboard' : 'client-dashboard';
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -199,6 +202,24 @@ export const LoginPage: React.FC<LoginPageProps> = ({ mode = 'client' }) => {
             ? 'Connectez-vous avec les identifiants transmis par votre administrateur.'
             : 'Connectez-vous à votre espace KWABO.'}
       </p>
+
+      {hasOtherActiveSession && currentUser && (
+        <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50/90 p-3 text-xs text-amber-900">
+          <p className="font-medium">
+            Session active : {currentUser.fullName || currentUser.email}
+          </p>
+          <p className="mt-0.5 text-amber-800">
+            Vous connecter ici remplacera la session en cours.
+          </p>
+          <button
+            type="button"
+            onClick={() => navigate(currentDashboardView)}
+            className="mt-2 font-semibold text-amber-950 underline underline-offset-2 hover:text-amber-700"
+          >
+            Retourner à mon espace actuel
+          </button>
+        </div>
+      )}
 
       {error && (
         <p role="alert" className="mt-5 rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">

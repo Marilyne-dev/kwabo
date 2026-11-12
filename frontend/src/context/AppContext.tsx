@@ -193,11 +193,12 @@ export function getViewFromHash(hash: string, userRole: AppRole): { view: string
   }
 
   // Public & auth
-  if (parts[0] === 'connexion') return { view: 'login', reqId: null };
+  if (parts[0] === 'connexion') {
+    if (userRole === 'USER') return { view: 'client-dashboard', reqId: null };
+    return { view: 'login', reqId: null };
+  }
   if (parts[0] === 'admin' && (!parts[1] || parts[1] === 'connexion' || parts[1] === 'login')) {
     if (userRole === 'ADMIN') return { view: 'admin-dashboard', reqId: null };
-    if (userRole === 'OPERATOR') return { view: 'operator-dashboard', reqId: null };
-    if (userRole === 'USER') return { view: 'client-dashboard', reqId: null };
     return { view: 'admin-login', reqId: null };
   }
   if (
@@ -205,8 +206,6 @@ export function getViewFromHash(hash: string, userRole: AppRole): { view: string
     ((parts[0] === 'operateur' || parts[0] === 'equipe') && (parts[1] === 'connexion' || parts[1] === 'login'))
   ) {
     if (userRole === 'OPERATOR') return { view: 'operator-dashboard', reqId: null };
-    if (userRole === 'ADMIN') return { view: 'admin-dashboard', reqId: null };
-    if (userRole === 'USER') return { view: 'client-dashboard', reqId: null };
     return { view: 'operator-login', reqId: null };
   }
   if (parts[0] === 'inscription') return { view: 'register', reqId: null };
@@ -550,6 +549,12 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
           const { view, reqId } = getViewFromHash(window.location.hash, user.role);
           setCurrentView(view);
           setActiveRequestId(reqId);
+          if (view === 'client-dashboard' || view === 'admin-dashboard' || view === 'operator-dashboard') {
+            const targetHash = getHashForView(view, reqId);
+            if (window.location.hash !== targetHash) {
+              window.history.replaceState(null, '', targetHash);
+            }
+          }
         } else {
           if (user.role === 'ADMIN') setCurrentView('admin-dashboard');
           else if (user.role === 'OPERATOR') setCurrentView('operator-dashboard');
@@ -568,6 +573,12 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       const { view, reqId } = getViewFromHash(window.location.hash, role);
       setCurrentView(view);
       setActiveRequestId(reqId);
+      if (view === 'client-dashboard' || view === 'admin-dashboard' || view === 'operator-dashboard') {
+        const targetHash = getHashForView(view, reqId);
+        if (window.location.hash !== targetHash) {
+          window.history.replaceState(null, '', targetHash);
+        }
+      }
     };
     window.addEventListener('hashchange', handleHashChange);
     return () => window.removeEventListener('hashchange', handleHashChange);
