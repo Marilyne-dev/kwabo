@@ -1,7 +1,9 @@
 import { Category, Service, User, RequestItem, DocumentItem, MessageItem, InvoiceItem, ReviewItem, AuditItem, NotificationItem } from '../types';
 
-export const WHATSAPP_NUMBER = '22900000000';
-export const WHATSAPP_DISPLAY = '+229 01 00 00 00 00';
+export const WHATSAPP_NUMBER = '2290166730274';
+export const WHATSAPP_DISPLAY = '+229 01 66 73 02 74';
+export const getWhatsAppLink = (text: string = 'Bonjour KWABO, je souhaite un renseignement') =>
+  `https://wa.me/${WHATSAPP_NUMBER}?text=${encodeURIComponent(text)}`;
 export const WHATSAPP_LINK = `https://wa.me/${WHATSAPP_NUMBER}?text=Bonjour%20KWABO%2C%20je%20souhaite%20un%20renseignement`;
 
 export const CITIES = ['Cotonou', 'Abomey-Calavi', 'Porto-Novo', 'Ouidah', 'Parakou', 'Abomey', 'Bohicon', 'Autre ville'];

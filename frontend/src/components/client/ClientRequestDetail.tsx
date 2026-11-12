@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { useApp } from '../../context/AppContext';
 import { Icon } from '../common/Icon';
-import { WHATSAPP_LINK } from '../../data/kwaboData';
+import { getWhatsAppLink } from '../../data/kwaboData';
 import { api, ApiError, getFirstValidationError } from '../../services/api';
 import { mapMessage, mapRequest } from '../../services/mappers';
 import { MessageItem, RequestItem } from '../../types';
@@ -533,7 +533,7 @@ export const ClientRequestDetail: React.FC = () => {
           {/* WhatsApp Direct link */}
           <a
             className="card card-link card-link-whatsapp"
-            href={`${WHATSAPP_LINK}?text=${encodeURIComponent(`Bonjour KWABO, ma demande ${request.tracking}`)}`}
+            href={getWhatsAppLink(`Bonjour KWABO, ma demande ${request.tracking}`)}
             target="_blank"
             rel="noopener noreferrer"
           >
