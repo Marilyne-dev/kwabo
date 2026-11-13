@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Modal,
   View,
@@ -20,6 +20,63 @@ import {
   downloadMediaFile,
 } from '@/utils/documentDownloader';
 import { authImageSource, downloadAuthFile } from '@/services/files';
+import { buildApiUrl, getToken } from '@/services/api';
+import { useVideoPlayer, VideoView } from 'expo-video';
+
+/** Lecture de la VRAIE vidéo, protégée par le jeton (web : via un Blob, natif : via les en-têtes). */
+function AuthVideo({ path }: { path: string }) {
+  const [source, setSource] = useState<any>(null);
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    let objectUrl: string | null = null;
+    setSource(null);
+    setFailed(false);
+    (async () => {
+      try {
+        const headers = { Authorization: `Bearer ${getToken() ?? ''}` };
+        if (Platform.OS === 'web') {
+          const res = await fetch(buildApiUrl(path), { headers });
+          if (!res.ok) throw new Error('http ' + res.status);
+          objectUrl = URL.createObjectURL(await res.blob());
+          if (!cancelled) setSource(objectUrl);
+        } else if (!cancelled) {
+          setSource({ uri: buildApiUrl(path), headers });
+        }
+      } catch {
+        if (!cancelled) setFailed(true);
+      }
+    })();
+    return () => {
+      cancelled = true;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [path]);
+
+  const player = useVideoPlayer(source, (p) => {
+    p.loop = false;
+  });
+
+  if (failed) {
+    return (
+      <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+        <Ionicons name="alert-circle-outline" size={32} color="#FFFFFF" />
+        <Text style={{ color: '#FFFFFF', textAlign: 'center', marginTop: 8 }}>
+          Lecture impossible. Utilisez le bouton Télécharger.
+        </Text>
+      </View>
+    );
+  }
+  if (!source) {
+    return (
+      <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
+        <ActivityIndicator color="#FFFFFF" />
+      </View>
+    );
+  }
+  return <VideoView player={player} style={{ width: '100%', height: '100%' }} nativeControls contentFit="contain" />;
+}
 
 interface DocumentModalProps {
   visible: boolean;
@@ -37,6 +94,7 @@ export function DocumentModal({ visible, document, onClose }: DocumentModalProps
   const isPhoto = document.type === 'photo';
   const isMedia = isVideo || isPhoto;
   const realPhoto = !!document.downloadPath && isPhoto;
+  const realVideo = !!document.downloadPath && isVideo;
   const photoKey = document.downloadPath ? null : DOCUMENT_PHOTOS[document.id] || (isMedia ? 'chantier-tour' : null);
 
   const handleDownload = async () => {
@@ -68,7 +126,7 @@ export function DocumentModal({ visible, document, onClose }: DocumentModalProps
       : document.type === 'receipt'
       ? 'Reçu de dépenses'
       : document.type === 'video'
-      ? 'Vidéo 360°'
+      ? 'Vidéo'
       : document.type === 'photo'
       ? 'Photo haute définition'
       : 'Document officiel';
@@ -129,7 +187,11 @@ export function DocumentModal({ visible, document, onClose }: DocumentModalProps
 
           {/* ZONE DE PRÉVISUALISATION (.m-viewer) */}
           <View style={styles.viewer}>
-            {realPhoto ? (
+            {realVideo ? (
+              <View style={styles.mediaContainer}>
+                <AuthVideo path={document.downloadPath!} />
+              </View>
+            ) : realPhoto ? (
               <View style={styles.mediaContainer}>
                 <Image source={authImageSource(document.downloadPath!)} style={styles.viewerImage} resizeMode="cover" />
               </View>
@@ -178,7 +240,7 @@ export function DocumentModal({ visible, document, onClose }: DocumentModalProps
             </View>
             <View style={styles.metaCol}>
               <Text style={styles.metaLabel}>Poids du fichier</Text>
-              <Text style={styles.metaValue}>{document.size || (isMedia ? '24.5 Mo' : '380 Ko')}</Text>
+              <Text style={styles.metaValue}>{document.size || (document.downloadPath ? '—' : isMedia ? '24.5 Mo' : '380 Ko')}</Text>
             </View>
             <View style={styles.metaCol}>
               <Text style={styles.metaLabel}>Sécurité</Text>

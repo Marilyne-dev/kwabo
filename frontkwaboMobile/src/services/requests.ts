@@ -2,11 +2,9 @@ import { api } from './api';
 import { mapRequest } from './mappers';
 import type { RequestItem } from '@/data/mockData';
 
-export interface PickedFile {
-  uri: string;
-  name: string;
-  type: string;
-}
+import { appendFile } from './upload';
+import type { PickedFile } from './upload';
+export type { PickedFile } from './upload';
 
 export interface NewRequestInput {
   service: string; // slug
@@ -54,7 +52,9 @@ export async function createRequest(input: NewRequestInput): Promise<RequestItem
   fd.append('urgency', rest.urgency);
   fd.append('description', rest.description);
   Object.entries(rest.details).forEach(([k, v]) => fd.append(`details[${k}]`, v));
-  Object.entries(files!).forEach(([k, f]) => fd.append(`files[${k}]`, f as any));
+  for (const [k, f] of Object.entries(files!)) {
+    await appendFile(fd, `files[${k}]`, f);
+  }
   const res = await api('/requests', { method: 'POST', body: fd });
   return mapRequest(res.data);
 }

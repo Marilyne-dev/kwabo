@@ -24,6 +24,10 @@ import { PHOTOS } from '@/constants/photos';
 import { authImageSource } from '@/services/files';
 import { getFirstValidationError } from '@/services/api';
 
+// Doit correspondre aux règles du serveur (MessageController : PDF, JPG, PNG, MP4, MOV, 20 Mo)
+const MAX_ATTACHMENT_MB = 20;
+const ALLOWED_ATTACHMENT = /\.(pdf|jpe?g|png|mp4|mov)$/i;
+
 export default function ChatScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { requests, messages, sendMessage, loadMessages } = useApp();
@@ -68,6 +72,14 @@ export default function ChatScreen() {
       if (!result.canceled && result.assets && result.assets.length > 0) {
         const file = result.assets[0];
         if (!request) return;
+        if (!ALLOWED_ATTACHMENT.test(file.name)) {
+          Alert.alert('Format non accepté', 'Formats acceptés : PDF, JPG, PNG, MP4 ou MOV.');
+          return;
+        }
+        if (file.size && file.size > MAX_ATTACHMENT_MB * 1024 * 1024) {
+          Alert.alert('Fichier trop lourd', `${MAX_ATTACHMENT_MB} Mo maximum. Votre fichier fait ${(file.size / 1024 / 1024).toFixed(1)} Mo.`);
+          return;
+        }
         try {
           await sendMessage(request.id, '', {
             uri: file.uri,

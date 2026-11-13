@@ -4,6 +4,7 @@ import { Platform } from 'react-native';
 const BASE_URL = (process.env.EXPO_PUBLIC_API_URL || 'https://kwabo.alwaysdata.net/api').replace(/\/+$/, '');
 const TOKEN_KEY = 'kwabo_token';
 const TIMEOUT_MS = 20000;
+const UPLOAD_TIMEOUT_MS = 180000; // envoi de fichier (photo, PDF, vidéo) sur réseau mobile lent
 
 export class ApiError extends Error {
   status: number;
@@ -88,7 +89,7 @@ export async function api<T = any>(path: string, options: ApiOptions = {}): Prom
   }
 
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+  const timer = setTimeout(() => controller.abort(), isFormData ? UPLOAD_TIMEOUT_MS : TIMEOUT_MS);
 
   let res: Response;
   try {

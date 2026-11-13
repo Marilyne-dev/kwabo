@@ -1,7 +1,8 @@
 import { api } from './api';
 import { mapMessage, mapThread } from './mappers';
 import type { MessageItem, ThreadInfo } from '@/data/mockData';
-import type { PickedFile } from './requests';
+import type { PickedFile } from './upload';
+import { appendFile } from './upload';
 
 export async function fetchThreads(): Promise<{ threads: ThreadInfo[]; unreadTotal: number }> {
   const res = await api('/messages');
@@ -18,7 +19,7 @@ export async function sendMessage(requestId: string, text: string, file?: Picked
   if (file) {
     const fd = new FormData();
     fd.append('text', text || file.name);
-    fd.append('attachment', file as any);
+    await appendFile(fd, 'attachment', file);
     res = await api(`/requests/${requestId}/messages`, { method: 'POST', body: fd });
   } else {
     res = await api(`/requests/${requestId}/messages`, { method: 'POST', body: { text } });
