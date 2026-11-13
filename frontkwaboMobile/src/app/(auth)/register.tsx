@@ -18,10 +18,11 @@ import { Button } from '@/components/common/Button';
 import { COUNTRIES } from '@/data/categories';
 import { useApp } from '@/context/AppContext';
 import { PHOTOS } from '@/constants/photos';
+import { getFirstValidationError } from '@/services/api';
 
 export default function RegisterScreen() {
   const router = useRouter();
-  const { loginDemo, notify } = useApp();
+  const { register } = useApp();
 
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
@@ -31,14 +32,33 @@ export default function RegisterScreen() {
   const [password, setPassword] = useState('');
   const [referralCode, setReferralCode] = useState('');
 
-  const handleRegister = () => {
-    loginDemo();
-    notify(
-      'Bienvenue sur KWABO !',
-      'Votre compte a été créé avec succès. Découvrez nos services au Bénin.',
-      'success'
-    );
-    router.replace('/(tabs)');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+
+  const handleRegister = async () => {
+    if (!firstName.trim() || !lastName.trim() || !email.trim() || !phone.trim() || !password) {
+      setError('Merci de remplir tous les champs obligatoires.');
+      return;
+    }
+    setError('');
+    setLoading(true);
+    try {
+      await register({
+        first_name: firstName.trim(),
+        last_name: lastName.trim(),
+        email: email.trim(),
+        phone: phone.trim(),
+        country: country.trim(),
+        password,
+        sponsor_code: referralCode.trim() || undefined,
+      });
+      // Pas de token : l'e-mail doit être confirmé avec le code à 6 chiffres
+      router.replace({ pathname: '/(auth)/verify-email', params: { email: email.trim() } });
+    } catch (e) {
+      setError(getFirstValidationError(e, "Inscription impossible."));
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -138,7 +158,7 @@ export default function RegisterScreen() {
             </View>
 
             <View style={styles.formGroup}>
-              <Text style={styles.label}>Mot de passe (8 car. min) *</Text>
+              <Text style={styles.label}>Mot de passe (8 car., 1 majuscule, 1 chiffre) *</Text>
               <TextInput
                 style={styles.input}
                 placeholder="••••••••"
@@ -161,8 +181,11 @@ export default function RegisterScreen() {
               />
             </View>
 
+            {!!error && <Text style={styles.errorText}>{error}</Text>}
+
             <Button
-              title="Créer mon compte KWABO"
+              disabled={loading}
+              title={loading ? 'Création…' : 'Créer mon compte KWABO'}
               onPress={handleRegister}
               variant="primary"
               size="lg"
@@ -184,6 +207,7 @@ export default function RegisterScreen() {
 }
 
 const styles = StyleSheet.create({
+  errorText: { color: COLORS.terracotta, fontSize: 13, marginTop: 4 },
   container: {
     flex: 1,
     backgroundColor: COLORS.greenHero,

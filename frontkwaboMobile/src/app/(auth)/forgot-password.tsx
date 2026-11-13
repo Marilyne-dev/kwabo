@@ -16,18 +16,25 @@ import { Ionicons } from '@expo/vector-icons';
 import { COLORS, RADIUS, SPACING } from '@/constants/theme';
 import { Button } from '@/components/common/Button';
 import { PHOTOS } from '@/constants/photos';
+import { forgotPassword } from '@/services/auth';
+import { getFirstValidationError } from '@/services/api';
 
 export default function ForgotPasswordScreen() {
   const router = useRouter();
   const [email, setEmail] = useState('');
   const [sent, setSent] = useState(false);
 
-  const handleReset = () => {
+  const handleReset = async () => {
     if (!email) {
       Alert.alert('Erreur', 'Veuillez saisir votre adresse e-mail');
       return;
     }
-    setSent(true);
+    try {
+      await forgotPassword(email);
+      setSent(true);
+    } catch (e) {
+      Alert.alert('Erreur', getFirstValidationError(e));
+    }
   };
 
   return (

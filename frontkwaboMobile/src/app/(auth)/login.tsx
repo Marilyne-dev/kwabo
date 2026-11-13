@@ -18,23 +18,43 @@ import { Button } from '@/components/common/Button';
 import { WhatsAppButton } from '@/components/common/WhatsAppButton';
 import { useApp } from '@/context/AppContext';
 import { PHOTOS } from '@/constants/photos';
+import { getFirstValidationError } from '@/services/api';
 
 export default function LoginScreen() {
   const router = useRouter();
-  const { loginDemo, notify } = useApp();
+  const { login, notify } = useApp();
 
-  const [email, setEmail] = useState('aicha@exemple.com');
-  const [password, setPassword] = useState('kwabo2026');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
 
-  const handleLogin = () => {
-    loginDemo();
-    notify(
-      'Bon retour sur KWABO !',
-      'Vous êtes connecté à votre espace personnel.',
-      'success'
-    );
-    router.replace('/(tabs)');
+  const [code, setCode] = useState('');
+  const [needsCode, setNeedsCode] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+
+  const handleLogin = async () => {
+    if (!email.trim() || !password) {
+      setError('Renseignez votre e-mail et votre mot de passe.');
+      return;
+    }
+    setError('');
+    setLoading(true);
+    try {
+      const res = await login(email, password, needsCode ? code : undefined);
+      if (res.status === 'needs_code') {
+        setNeedsCode(true);
+      } else if (res.status === 'needs_verification') {
+        router.push({ pathname: '/(auth)/verify-email', params: { email: email.trim() } });
+      } else {
+        notify('Bon retour sur KWABO !', 'Vous êtes connecté à votre espace personnel.', 'success');
+        router.replace('/(tabs)');
+      }
+    } catch (e) {
+      setError(getFirstValidationError(e, 'Connexion impossible.'));
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -124,8 +144,26 @@ export default function LoginScreen() {
               </View>
             </View>
 
+            {needsCode && (
+              <View style={styles.formGroup}>
+                <Text style={styles.label}>Code d'authentification (6 chiffres)</Text>
+                <TextInput
+                  style={styles.input}
+                  placeholder="123456"
+                  placeholderTextColor={COLORS.muted}
+                  value={code}
+                  onChangeText={(v) => setCode(v.replace(/\D/g, '').slice(0, 6))}
+                  keyboardType="number-pad"
+                  maxLength={6}
+                />
+              </View>
+            )}
+
+            {!!error && <Text style={styles.errorText}>{error}</Text>}
+
             <Button
-              title="Se connecter"
+              title={loading ? 'Connexion…' : 'Se connecter'}
+              disabled={loading}
               onPress={handleLogin}
               variant="primary"
               size="lg"
@@ -287,6 +325,11 @@ const styles = StyleSheet.create({
   },
   eyeBtn: {
     paddingHorizontal: 12,
+  },
+  errorText: {
+    color: COLORS.terracotta,
+    fontSize: 13,
+    marginBottom: 8,
   },
   altRow: {
     flexDirection: 'row',

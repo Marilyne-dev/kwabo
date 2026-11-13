@@ -6,9 +6,10 @@ import { COLORS } from '@/constants/theme';
 
 export default function IndexScreen() {
   const router = useRouter();
-  const { user } = useApp();
+  const { user, authReady } = useApp();
 
   useEffect(() => {
+    if (!authReady) return;
     const timer = setTimeout(() => {
       if (user) {
         router.replace('/(tabs)');
@@ -18,7 +19,7 @@ export default function IndexScreen() {
     }, 300);
 
     return () => clearTimeout(timer);
-  }, [user]);
+  }, [user, authReady]);
 
   return (
     <View style={styles.container}>

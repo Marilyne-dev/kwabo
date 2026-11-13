@@ -1,11 +1,13 @@
-import React, { createContext, useContext, useState, ReactNode, useRef, useCallback } from 'react';
+import React, { createContext, useContext, useState, useEffect, ReactNode, useRef, useCallback } from 'react';
+import { loadToken, setUnauthorizedHandler } from '@/services/api';
+import * as authApi from '@/services/auth';
+import type { LoginResult, RegisterPayload } from '@/services/auth';
 import {
   User,
   RequestItem,
   MessageItem,
   AppNotification,
   DocumentItem,
-  INITIAL_USER,
   INITIAL_REQUESTS,
   INITIAL_MESSAGES,
   INITIAL_NOTIFICATIONS,
@@ -26,8 +28,12 @@ interface AppContextType {
   messages: Record<string, MessageItem[]>;
   unreadNotificationsCount: number;
   unreadMessagesCount: number;
-  loginDemo: () => void;
-  logout: () => void;
+  authReady: boolean;
+  login: (email: string, password: string, code?: string) => Promise<LoginResult>;
+  register: (payload: RegisterPayload) => Promise<void>;
+  verifyEmail: (email: string, code: string) => Promise<void>;
+  resendVerification: (email: string) => Promise<void>;
+  logout: () => Promise<void>;
   createRequest: (data: Omit<RequestItem, 'id' | 'tracking' | 'createdAt' | 'history'>) => RequestItem;
   sendMessage: (requestId: string, text: string, fileUri?: string) => void;
   markNotificationAsRead: (id: string) => void;
@@ -53,11 +59,44 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const unreadNotificationsCount = notifications.filter((n) => !n.read).length;
   const unreadMessagesCount = 1; // Simulation d'un message non lu
 
-  const loginDemo = () => {
-    setUser(INITIAL_USER);
+  const [authReady, setAuthReady] = useState(false);
+
+  // Au démarrage : on relit le token sécurisé puis /me. Un 401 déconnecte.
+  useEffect(() => {
+    setUnauthorizedHandler(() => setUser(null));
+    (async () => {
+      try {
+        const token = await loadToken();
+        if (token) setUser(await authApi.fetchMe());
+      } catch {
+        setUser(null);
+      } finally {
+        setAuthReady(true);
+      }
+    })();
+    return () => setUnauthorizedHandler(null);
+  }, []);
+
+  const login = async (email: string, password: string, code?: string) => {
+    const res = await authApi.login(email, password, code);
+    if (res.status === 'ok') setUser(res.user);
+    return res;
   };
 
-  const logout = () => {
+  const register = async (payload: RegisterPayload) => {
+    await authApi.register(payload);
+  };
+
+  const verifyEmail = async (email: string, code: string) => {
+    setUser(await authApi.verifyEmail(email, code));
+  };
+
+  const resendVerification = async (email: string) => {
+    await authApi.resendVerification(email);
+  };
+
+  const logout = async () => {
+    await authApi.logoutRemote();
     setUser(null);
   };
 
@@ -195,7 +234,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
         messages,
         unreadNotificationsCount,
         unreadMessagesCount,
-        loginDemo,
+        authReady,
+        login,
+        register,
+        verifyEmail,
+        resendVerification,
         logout,
         createRequest,
         sendMessage,

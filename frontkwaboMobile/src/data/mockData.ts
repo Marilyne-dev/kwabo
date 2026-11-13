@@ -7,6 +7,8 @@ export interface User {
   country: string;
   phone: string;
   referralCode: string;
+  emailVerified?: boolean;
+  twoFactorEnabled?: boolean;
 }
 
 export interface RequestItem {

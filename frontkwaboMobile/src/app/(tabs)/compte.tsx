@@ -49,8 +49,8 @@ export default function CompteScreen() {
         {
           text: 'Déconnexion',
           style: 'destructive',
-          onPress: () => {
-            logout();
+          onPress: async () => {
+            await logout();
             router.replace('/(auth)/login');
           },
         },
