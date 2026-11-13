@@ -13,18 +13,19 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { COLORS, RADIUS, SHADOWS, SPACING } from '@/constants/theme';
 import { Header } from '@/components/common/Header';
-import { SERVICES } from '@/data/services';
+import { useApp } from '@/context/AppContext';
 import { CATEGORIES } from '@/data/categories';
 import { WhatsAppButton } from '@/components/common/WhatsAppButton';
 import { PHOTOS, SERVICE_PHOTOS } from '@/constants/photos';
 
 export default function ServicesCatalogScreen() {
   const router = useRouter();
+  const { services } = useApp();
   const params = useLocalSearchParams<{ category?: string }>();
   const [selectedCat, setSelectedCat] = useState<string>(params.category || 'all');
   const [searchQuery, setSearchQuery] = useState('');
 
-  const filteredServices = SERVICES.filter((s) => {
+  const filteredServices = services.filter((s) => {
     const matchCat = selectedCat === 'all' || s.cat === selectedCat;
     const matchQuery =
       searchQuery.trim() === '' ||
@@ -68,7 +69,7 @@ export default function ServicesCatalogScreen() {
             onPress={() => setSelectedCat('all')}
           >
             <Text style={[styles.catChipText, selectedCat === 'all' && styles.catChipTextActive]}>
-              Tous ({SERVICES.length})
+              Tous ({services.length})
             </Text>
           </TouchableOpacity>
           {CATEGORIES.map((cat) => (

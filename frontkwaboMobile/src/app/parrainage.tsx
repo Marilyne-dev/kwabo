@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -14,15 +14,23 @@ import { COLORS, RADIUS, SHADOWS, SPACING } from '@/constants/theme';
 import { useApp } from '@/context/AppContext';
 import { Header } from '@/components/common/Header';
 import { Button } from '@/components/common/Button';
+import { fetchReferrals, ReferralData } from '@/services/misc';
 
 export default function ParrainageScreen() {
   const { user } = useApp();
-  const referralCode = user?.referralCode || 'KW-AICH01';
+  const [data, setData] = useState<ReferralData | null>(null);
+  useEffect(() => {
+    fetchReferrals().then(setData).catch(() => {});
+  }, []);
+  const referralCode = data?.code || user?.referralCode || '';
+  const reward = data?.reward_per_referral ?? 30;
 
   const handleShare = async () => {
     try {
       await Share.share({
-        message: `Rejoins KWABO pour toutes tes démarches et chantiers au Bénin ! Utilise mon code ${referralCode} pour bénéficier de 30 € offerts sur ta première mission. https://kwabo.bj`,
+        message:
+          data?.share_text ||
+          `Rejoins KWABO pour toutes tes démarches et chantiers au Bénin ! Utilise mon code ${referralCode} pour bénéficier de ${reward} € offerts sur ta première mission.`,
       });
     } catch {
       Alert.alert('Partage', `Votre code de parrainage est : ${referralCode}`);
@@ -50,7 +58,7 @@ export default function ParrainageScreen() {
           <View style={styles.iconCircle}>
             <Ionicons name="gift" size={36} color={COLORS.goldText} />
           </View>
-          <Text style={styles.heroTitle}>Gagnez 30 € de crédit</Text>
+          <Text style={styles.heroTitle}>Gagnez {reward} € de crédit</Text>
           <Text style={styles.heroSubtitle}>
             Pour chaque proche de la diaspora qui lance sa première mission avec votre code, vous recevez tous les deux 30 € de remise.
           </Text>
@@ -81,12 +89,12 @@ export default function ParrainageScreen() {
           <Text style={styles.statsTitle}>Mes gains de parrainage</Text>
           <View style={styles.statsRow}>
             <View style={styles.statCell}>
-              <Text style={styles.statNumber}>2</Text>
+              <Text style={styles.statNumber}>{data?.stats.referrals ?? 0}</Text>
               <Text style={styles.statLabel}>Filleuls inscrits</Text>
             </View>
             <View style={styles.statDivider} />
             <View style={styles.statCell}>
-              <Text style={styles.statNumber}>60 €</Text>
+              <Text style={styles.statNumber}>{data?.stats.rewards ?? 0} €</Text>
               <Text style={styles.statLabel}>Crédits disponibles</Text>
             </View>
           </View>

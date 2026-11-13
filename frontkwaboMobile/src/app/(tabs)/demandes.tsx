@@ -8,7 +8,7 @@ import {
   Platform,
   Image,
 } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useRouter, useFocusEffect } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { COLORS, RADIUS, SHADOWS, SPACING } from '@/constants/theme';
@@ -22,7 +22,12 @@ type FilterType = 'all' | 'active' | 'pending' | 'done';
 
 export default function DemandesScreen() {
   const router = useRouter();
-  const { requests } = useApp();
+  const { requests, refreshRequests } = useApp();
+  useFocusEffect(
+    React.useCallback(() => {
+      refreshRequests();
+    }, [refreshRequests])
+  );
   const [filter, setFilter] = useState<FilterType>('all');
 
   const filteredRequests = requests.filter((r) => {

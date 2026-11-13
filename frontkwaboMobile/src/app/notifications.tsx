@@ -6,7 +6,7 @@ import {
   ScrollView,
   TouchableOpacity,
 } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useRouter, useFocusEffect } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { COLORS, RADIUS, SHADOWS, SPACING } from '@/constants/theme';
@@ -15,7 +15,12 @@ import { Header } from '@/components/common/Header';
 
 export default function NotificationsScreen() {
   const router = useRouter();
-  const { notifications, markNotificationAsRead } = useApp();
+  const { notifications, markNotificationAsRead, refreshNotifications } = useApp();
+  useFocusEffect(
+    React.useCallback(() => {
+      refreshNotifications();
+    }, [refreshNotifications])
+  );
   const [filterUnread, setFilterUnread] = useState(false);
 
   const displayedNotifs = filterUnread
@@ -105,7 +110,7 @@ export default function NotificationsScreen() {
                     </Text>
                     {!item.read && <View style={styles.dot} />}
                   </View>
-                  <Text style={styles.message}>{item.message}</Text>
+                  {!!item.message && <Text style={styles.message}>{item.message}</Text>}
                   <Text style={styles.date}>{item.date}</Text>
                 </View>
               </TouchableOpacity>

@@ -2,16 +2,22 @@ import React, { createContext, useContext, useState, useEffect, ReactNode, useRe
 import { loadToken, setUnauthorizedHandler } from '@/services/api';
 import * as authApi from '@/services/auth';
 import type { LoginResult, RegisterPayload } from '@/services/auth';
-import {
+import * as requestsApi from '@/services/requests';
+import type { NewRequestInput, PickedFile } from '@/services/requests';
+import * as messagesApi from '@/services/messages';
+import * as misc from '@/services/misc';
+import type { InvoicesMeta } from '@/services/misc';
+import { fetchCatalog } from '@/services/catalog';
+import { SERVICES as LOCAL_SERVICES } from '@/data/services';
+import type { ServiceItem } from '@/data/services';
+import type {
   User,
   RequestItem,
   MessageItem,
   AppNotification,
   DocumentItem,
-  INITIAL_REQUESTS,
-  INITIAL_MESSAGES,
-  INITIAL_NOTIFICATIONS,
-  INITIAL_DOCUMENTS,
+  InvoiceItem,
+  ThreadInfo,
 } from '@/data/mockData';
 
 export interface PushBannerData {
@@ -21,23 +27,43 @@ export interface PushBannerData {
 }
 
 interface AppContextType {
+  // auth
   user: User | null;
-  requests: RequestItem[];
-  notifications: AppNotification[];
-  documents: DocumentItem[];
-  messages: Record<string, MessageItem[]>;
-  unreadNotificationsCount: number;
-  unreadMessagesCount: number;
   authReady: boolean;
   login: (email: string, password: string, code?: string) => Promise<LoginResult>;
   register: (payload: RegisterPayload) => Promise<void>;
   verifyEmail: (email: string, code: string) => Promise<void>;
   resendVerification: (email: string) => Promise<void>;
   logout: () => Promise<void>;
-  createRequest: (data: Omit<RequestItem, 'id' | 'tracking' | 'createdAt' | 'history'>) => RequestItem;
-  sendMessage: (requestId: string, text: string, fileUri?: string) => void;
+  // catalogue
+  services: ServiceItem[];
+  // demandes
+  requests: RequestItem[];
+  requestsLoading: boolean;
+  refreshRequests: () => Promise<void>;
+  createRequest: (data: NewRequestInput) => Promise<RequestItem>;
+  cancelRequest: (id: string) => Promise<void>;
+  // messages
+  messages: Record<string, MessageItem[]>;
+  threads: Record<string, ThreadInfo>;
+  unreadMessagesCount: number;
+  loadMessages: (requestId: string) => Promise<void>;
+  refreshThreads: () => Promise<void>;
+  sendMessage: (requestId: string, text: string, file?: PickedFile) => Promise<void>;
+  // documents
+  documents: DocumentItem[];
+  refreshDocuments: () => Promise<void>;
+  // paiements
+  invoices: InvoiceItem[];
+  invoicesMeta: InvoicesMeta;
+  refreshInvoices: () => Promise<void>;
+  payInvoice: (id: string, method: 'card' | 'momo' | 'wise') => Promise<void>;
+  // notifications
+  notifications: AppNotification[];
+  unreadNotificationsCount: number;
+  refreshNotifications: () => Promise<void>;
   markNotificationAsRead: (id: string) => void;
-  simulatePush: (type: 'quote' | 'started' | 'report' | 'done' | 'payment') => void;
+  // bannière
   notify: (title: string, message: string, type?: 'success' | 'payment' | 'doc' | 'info') => void;
   activePushBanner: PushBannerData | null;
   dismissPushBanner: () => void;
@@ -45,23 +71,29 @@ interface AppContextType {
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
+const POLL_MS = 30000;
 
 export function AppProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
-  const [requests, setRequests] = useState<RequestItem[]>(INITIAL_REQUESTS);
-  const [notifications, setNotifications] = useState<AppNotification[]>(INITIAL_NOTIFICATIONS);
-  const [documents, setDocuments] = useState<DocumentItem[]>(INITIAL_DOCUMENTS);
-  const [messages, setMessages] = useState<Record<string, MessageItem[]>>(INITIAL_MESSAGES);
+  const [authReady, setAuthReady] = useState(false);
+  const [services, setServices] = useState<ServiceItem[]>(LOCAL_SERVICES);
+  const [requests, setRequests] = useState<RequestItem[]>([]);
+  const [requestsLoading, setRequestsLoading] = useState(false);
+  const [messages, setMessages] = useState<Record<string, MessageItem[]>>({});
+  const [threads, setThreads] = useState<Record<string, ThreadInfo>>({});
+  const [unreadMessagesCount, setUnreadMessagesCount] = useState(0);
+  const [documents, setDocuments] = useState<DocumentItem[]>([]);
+  const [invoices, setInvoices] = useState<InvoiceItem[]>([]);
+  const [invoicesMeta, setInvoicesMeta] = useState<InvoicesMeta>({ dueTotal: 0, paidTotal: 0, count: 0 });
+  const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const [activePushBanner, setActivePushBanner] = useState<PushBannerData | null>(null);
   const [notificationPing, setNotificationPing] = useState(0);
   const bannerTimeoutRef = useRef<any>(null);
+  const lastUnreadNotifs = useRef(0);
 
   const unreadNotificationsCount = notifications.filter((n) => !n.read).length;
-  const unreadMessagesCount = 1; // Simulation d'un message non lu
 
-  const [authReady, setAuthReady] = useState(false);
-
-  // Au démarrage : on relit le token sécurisé puis /me. Un 401 déconnecte.
+  /* ---------- Session ---------- */
   useEffect(() => {
     setUnauthorizedHandler(() => setUser(null));
     (async () => {
@@ -82,81 +114,131 @@ export function AppProvider({ children }: { children: ReactNode }) {
     if (res.status === 'ok') setUser(res.user);
     return res;
   };
-
   const register = async (payload: RegisterPayload) => {
     await authApi.register(payload);
   };
-
   const verifyEmail = async (email: string, code: string) => {
     setUser(await authApi.verifyEmail(email, code));
   };
-
   const resendVerification = async (email: string) => {
     await authApi.resendVerification(email);
   };
-
   const logout = async () => {
     await authApi.logoutRemote();
     setUser(null);
   };
 
-  const createRequest = (data: Omit<RequestItem, 'id' | 'tracking' | 'createdAt' | 'history'>) => {
-    const newId = `r000${requests.length + 1}`;
-    const newTracking = `KW-2026-${String(requests.length + 1).padStart(4, '0')}`;
-    const newReq: RequestItem = {
-      ...data,
-      id: newId,
-      tracking: newTracking,
-      createdAt: "À l'instant",
-      history: [
-        { at: "À l'instant", text: 'Demande enregistrée sur KWABO' },
-      ],
-    };
-    setRequests((prev) => [newReq, ...prev]);
+  /* ---------- Catalogue (public, repli local si échec) ---------- */
+  useEffect(() => {
+    fetchCatalog()
+      .then((list) => { if (list.length) setServices(list.filter((x) => x.available !== false)); })
+      .catch(() => {});
+  }, []);
 
-    // Déclencher le tintement de cloche
+  /* ---------- Demandes ---------- */
+  const refreshRequests = useCallback(async () => {
+    setRequestsLoading(true);
+    try {
+      setRequests(await requestsApi.fetchRequests());
+    } catch {} finally {
+      setRequestsLoading(false);
+    }
+  }, []);
+
+  const createRequest = async (data: NewRequestInput) => {
+    const created = await requestsApi.createRequest(data);
+    setRequests((prev) => [created, ...prev]);
     setNotificationPing((p) => p + 1);
-
-    // Ajouter une notification automatique
-    const newNotif: AppNotification = {
-      id: `notif-${Date.now()}`,
-      userId: user?.id || 'u01',
-      requestId: newId,
-      title: 'Nouvelle demande transmise',
-      message: `Votre demande « ${newReq.title} » est bien enregistrée. Notre équipe prépare votre devis sous 24h.`,
-      date: "À l'instant",
-      read: false,
-      type: 'quote',
-    };
-    setNotifications((prev) => [newNotif, ...prev]);
-
-    return newReq;
+    return created;
   };
 
-  const sendMessage = (requestId: string, text: string, fileUri?: string) => {
-    if (!text.trim()) return;
-    const newMsg: MessageItem = {
-      id: `m-${Date.now()}`,
-      requestId,
-      sender: 'client',
-      senderName: `${user?.firstName || 'Aïcha'} ${user?.lastName || 'Sossa'}`,
-      text: text.trim(),
-      time: "À l'instant",
-      fileUri,
-    };
-
-    setMessages((prev) => ({
-      ...prev,
-      [requestId]: [...(prev[requestId] || []), newMsg],
-    }));
+  const cancelRequest = async (id: string) => {
+    await requestsApi.cancelRequest(id);
+    await refreshRequests();
   };
+
+  /* ---------- Messages ---------- */
+  const refreshThreads = useCallback(async () => {
+    try {
+      const { threads: list, unreadTotal } = await messagesApi.fetchThreads();
+      const map: Record<string, ThreadInfo> = {};
+      list.forEach((t) => { map[t.requestId] = t; });
+      setThreads(map);
+      setUnreadMessagesCount(unreadTotal);
+    } catch {}
+  }, []);
+
+  const loadMessages = useCallback(async (requestId: string) => {
+    try {
+      const list = await messagesApi.fetchMessages(requestId);
+      setMessages((prev) => ({ ...prev, [requestId]: list }));
+      if (list.some((m) => m.sender === 'kwabo')) {
+        messagesApi.markRead(requestId).then(refreshThreads).catch(() => {});
+      }
+    } catch {}
+  }, [refreshThreads]);
+
+  const sendMessage = async (requestId: string, text: string, file?: PickedFile) => {
+    if (!text.trim() && !file) return;
+    const msg = await messagesApi.sendMessage(requestId, text.trim(), file);
+    setMessages((prev) => ({ ...prev, [requestId]: [...(prev[requestId] || []), msg] }));
+  };
+
+  /* ---------- Documents & paiements ---------- */
+  const refreshDocuments = useCallback(async () => {
+    try { setDocuments(await misc.fetchDocuments()); } catch {}
+  }, []);
+
+  const refreshInvoices = useCallback(async () => {
+    try {
+      const { items, meta } = await misc.fetchInvoices();
+      setInvoices(items);
+      setInvoicesMeta(meta);
+    } catch {}
+  }, []);
+
+  const payInvoice = async (id: string, method: 'card' | 'momo' | 'wise') => {
+    await misc.payInvoice(id, method);
+    await Promise.all([refreshInvoices(), refreshRequests()]);
+  };
+
+  /* ---------- Notifications ---------- */
+  const refreshNotifications = useCallback(async () => {
+    try {
+      const { items } = await misc.fetchNotifications();
+      const unread = items.filter((n) => !n.read).length;
+      if (unread > lastUnreadNotifs.current) setNotificationPing((p) => p + 1);
+      lastUnreadNotifs.current = unread;
+      setNotifications(items);
+    } catch {}
+  }, []);
 
   const markNotificationAsRead = (id: string) => {
-    setNotifications((prev) =>
-      prev.map((n) => (n.id === id ? { ...n, read: true } : n))
-    );
+    setNotifications((prev) => prev.map((n) => (n.id === id ? { ...n, read: true } : n)));
+    misc.markNotificationRead(id).catch(() => {});
   };
 
+  /* ---------- Chargement à la connexion + rafraîchissement régulier ---------- */
+  useEffect(() => {
+    if (!user) {
+      setRequests([]); setMessages({}); setThreads({}); setDocuments([]);
+      setInvoices([]); setNotifications([]); setUnreadMessagesCount(0);
+      lastUnreadNotifs.current = 0;
+      return;
+    }
+    refreshRequests();
+    refreshThreads();
+    refreshNotifications();
+    refreshDocuments();
+    refreshInvoices();
+    const timer = setInterval(() => {
+      refreshThreads();
+      refreshNotifications();
+    }, POLL_MS);
+    return () => clearInterval(timer);
+  }, [user?.id]);
+
+  /* ---------- Bannière locale (retour visuel uniquement) ---------- */
   const dismissPushBanner = useCallback(() => {
     if (bannerTimeoutRef.current) {
       clearTimeout(bannerTimeoutRef.current);
@@ -166,88 +248,26 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const notify = useCallback(
-    (
-      title: string,
-      message: string,
-      type: 'success' | 'payment' | 'doc' | 'info' = 'success'
-    ) => {
-      if (bannerTimeoutRef.current) {
-        clearTimeout(bannerTimeoutRef.current);
-      }
-
+    (title: string, message: string, type: 'success' | 'payment' | 'doc' | 'info' = 'success') => {
+      if (bannerTimeoutRef.current) clearTimeout(bannerTimeoutRef.current);
       setActivePushBanner({ title, message, type });
       setNotificationPing((p) => p + 1);
-
-      const newNotif: AppNotification = {
-        id: `notif-${Date.now()}`,
-        userId: user?.id || 'u01',
-        title,
-        message,
-        date: "À l'instant",
-        read: false,
-        type: type === 'payment' ? 'payment' : type === 'doc' ? 'report' : 'quote',
-      };
-      setNotifications((prev) => [newNotif, ...prev]);
-
-      bannerTimeoutRef.current = setTimeout(() => {
-        setActivePushBanner(null);
-      }, 4500);
+      bannerTimeoutRef.current = setTimeout(() => setActivePushBanner(null), 4500);
     },
-    [user]
+    []
   );
-
-  const simulatePush = (type: 'quote' | 'started' | 'report' | 'done' | 'payment') => {
-    const templates = {
-      quote: {
-        title: 'Nouveau devis disponible',
-        message: 'Le devis pour votre demande de santé a été chiffré : 45 €.',
-      },
-      started: {
-        title: 'Mission démarrée',
-        message: 'Notre agent est sur le terrain à Abomey-Calavi.',
-      },
-      report: {
-        title: 'Nouveau rapport avec vidéo',
-        message: 'Le rapport S4 et la vidéo 360° sont consultables.',
-      },
-      done: {
-        title: 'Mission terminée',
-        message: 'L\'acte de naissance a été légalisé avec succès.',
-      },
-      payment: {
-        title: 'Paiement confirmé',
-        message: 'Votre règlement de 160 € a été validé.',
-      },
-    };
-
-    const push = templates[type];
-    notify(push.title, push.message, type === 'payment' ? 'payment' : type === 'report' ? 'doc' : 'success');
-  };
 
   return (
     <AppContext.Provider
       value={{
-        user,
-        requests,
-        notifications,
-        documents,
-        messages,
-        unreadNotificationsCount,
-        unreadMessagesCount,
-        authReady,
-        login,
-        register,
-        verifyEmail,
-        resendVerification,
-        logout,
-        createRequest,
-        sendMessage,
-        markNotificationAsRead,
-        simulatePush,
-        notify,
-        activePushBanner,
-        dismissPushBanner,
-        notificationPing,
+        user, authReady, login, register, verifyEmail, resendVerification, logout,
+        services,
+        requests, requestsLoading, refreshRequests, createRequest, cancelRequest,
+        messages, threads, unreadMessagesCount, loadMessages, refreshThreads, sendMessage,
+        documents, refreshDocuments,
+        invoices, invoicesMeta, refreshInvoices, payInvoice,
+        notifications, unreadNotificationsCount, refreshNotifications, markNotificationAsRead,
+        notify, activePushBanner, dismissPushBanner, notificationPing,
       }}
     >
       {children}
@@ -257,9 +277,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
 export function useApp() {
   const context = useContext(AppContext);
-  if (!context) {
-    throw new Error('useApp must be used within an AppProvider');
-  }
+  if (!context) throw new Error('useApp must be used within an AppProvider');
   return context;
 }
-

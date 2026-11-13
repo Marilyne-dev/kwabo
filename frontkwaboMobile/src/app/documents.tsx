@@ -8,6 +8,7 @@ import {
   Alert,
   Image,
 } from 'react-native';
+import { useFocusEffect } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { COLORS, RADIUS, SHADOWS, SPACING } from '@/constants/theme';
@@ -19,7 +20,12 @@ import { DocumentModal } from '@/components/common/DocumentModal';
 type DocFilter = 'all' | 'media' | 'reports';
 
 export default function DocumentsScreen() {
-  const { documents } = useApp();
+  const { documents, refreshDocuments } = useApp();
+  useFocusEffect(
+    React.useCallback(() => {
+      refreshDocuments();
+    }, [refreshDocuments])
+  );
   const [filter, setFilter] = useState<DocFilter>('all');
   const [selectedDoc, setSelectedDoc] = useState<any | null>(null);
 

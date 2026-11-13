@@ -8,7 +8,7 @@ import {
   Platform,
   Image,
 } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useRouter, useFocusEffect } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { COLORS, RADIUS, SHADOWS, SPACING } from '@/constants/theme';
@@ -19,7 +19,13 @@ import { PHOTOS, SERVICE_PHOTOS } from '@/constants/photos';
 
 export default function MessagesScreen() {
   const router = useRouter();
-  const { requests, messages } = useApp();
+  const { requests, threads, refreshThreads, refreshRequests } = useApp();
+  useFocusEffect(
+    React.useCallback(() => {
+      refreshThreads();
+      refreshRequests();
+    }, [refreshThreads, refreshRequests])
+  );
 
   return (
     <SafeAreaView style={styles.safeContainer} edges={['top']}>
@@ -41,8 +47,7 @@ export default function MessagesScreen() {
 
         <View style={styles.list}>
           {requests.map((req) => {
-            const thread = messages[req.id] || [];
-            const lastMsg = thread[thread.length - 1];
+            const thread = threads[req.id];
             const photoKey = SERVICE_PHOTOS[req.serviceId] || 'chantier';
 
             return (
@@ -60,20 +65,20 @@ export default function MessagesScreen() {
                       {req.title}
                     </Text>
                     <Text style={styles.chatTime}>
-                      {lastMsg ? lastMsg.time : req.createdAt}
+                      {thread?.lastAt || req.createdAt}
                     </Text>
                   </View>
 
                   <Text style={styles.chatTracking}>Réf : {req.tracking}</Text>
 
                   <Text style={styles.chatSnippet} numberOfLines={2}>
-                    {lastMsg
-                      ? `${lastMsg.senderName} : ${lastMsg.text}`
+                    {thread?.lastText
+                      ? `${thread.lastAuthor ? thread.lastAuthor + ' : ' : ''}${thread.lastText}`
                       : 'Discussion ouverte avec votre chargé de mission...'}
                   </Text>
                 </View>
 
-                {req.id === 'r0001' && (
+                {!!thread && thread.unread > 0 && (
                   <View style={styles.unreadDot} />
                 )}
               </TouchableOpacity>

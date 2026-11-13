@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
   View,
   Text,
@@ -21,10 +21,12 @@ import * as DocumentPicker from 'expo-document-picker';
 import { DocumentModal } from '@/components/common/DocumentModal';
 import { DocumentDownloadData } from '@/utils/documentDownloader';
 import { PHOTOS } from '@/constants/photos';
+import { authImageSource } from '@/services/files';
+import { getFirstValidationError } from '@/services/api';
 
 export default function ChatScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
-  const { requests, messages, sendMessage } = useApp();
+  const { requests, messages, sendMessage, loadMessages } = useApp();
   const [inputText, setInputText] = useState('');
   const [selectedDoc, setSelectedDoc] = useState<DocumentDownloadData | null>(null);
   const scrollViewRef = useRef<any>(null);
@@ -32,13 +34,26 @@ export default function ChatScreen() {
   const request = requests.find((r) => r.id === id) || requests[0];
   const thread = (request ? messages[request.id] : []) || [];
 
-  const handleSend = () => {
+  // Charge la conversation et la rafraîchit toutes les 10 s tant que l'écran est ouvert
+  useEffect(() => {
+    if (!request?.id) return;
+    loadMessages(request.id);
+    const timer = setInterval(() => loadMessages(request.id), 10000);
+    return () => clearInterval(timer);
+  }, [request?.id]);
+
+  const handleSend = async () => {
     if (!inputText.trim() || !request) return;
-    sendMessage(request.id, inputText.trim());
-    setInputText('');
-    setTimeout(() => {
-      scrollViewRef.current?.scrollToEnd({ animated: true });
-    }, 100);
+    const text = inputText.trim();
+    try {
+      await sendMessage(request.id, text);
+      setInputText('');
+      setTimeout(() => {
+        scrollViewRef.current?.scrollToEnd({ animated: true });
+      }, 100);
+    } catch (e) {
+      Alert.alert('Envoi impossible', getFirstValidationError(e));
+    }
   };
 
   const handleAttach = async () => {
@@ -52,29 +67,17 @@ export default function ChatScreen() {
 
       if (!result.canceled && result.assets && result.assets.length > 0) {
         const file = result.assets[0];
-        const fileSizeStr = file.size
-          ? file.size > 1024 * 1024
-            ? `${(file.size / (1024 * 1024)).toFixed(1)} Mo`
-            : `${Math.round(file.size / 1024)} Ko`
-          : '';
-
-        const lowerName = file.name.toLowerCase();
-        const isPdf = lowerName.endsWith('.pdf');
-        const isImage =
-          file.mimeType?.startsWith('image/') ||
-          /\.(jpg|jpeg|png|webp|gif)$/i.test(lowerName);
-        const isVideo =
-          file.mimeType?.startsWith('video/') ||
-          /\.(mp4|mov|avi|mkv)$/i.test(lowerName);
-
-        const icon = isPdf ? '📄' : isImage ? '🖼️' : isVideo ? '🎥' : '📎';
-
         if (!request) return;
-        sendMessage(
-          request.id,
-          `${icon} [Fichier envoyé] : ${file.name}${fileSizeStr ? ` (${fileSizeStr})` : ''}`,
-          file.uri
-        );
+        try {
+          await sendMessage(request.id, '', {
+            uri: file.uri,
+            name: file.name,
+            type: file.mimeType || 'application/octet-stream',
+          });
+        } catch (e) {
+          Alert.alert('Envoi impossible', getFirstValidationError(e));
+          return;
+        }
 
         setTimeout(() => {
           scrollViewRef.current?.scrollToEnd({ animated: true });
@@ -85,7 +88,7 @@ export default function ChatScreen() {
     }
   };
 
-  const handleOpenAttachedFile = (fileName: string, fileSize?: string, fileUri?: string) => {
+  const handleOpenAttachedFile = (fileName: string, fileSize?: string, downloadPath?: string) => {
     const lower = fileName.toLowerCase();
     const isPdf = lower.endsWith('.pdf');
     const isImg = /\.(jpg|jpeg|png|webp|gif)$/i.test(lower);
@@ -107,6 +110,7 @@ export default function ChatScreen() {
       size: fileSize || (isVid ? '24.5 Mo' : isPdf ? '320 Ko' : '1.2 Mo'),
       reference: request?.tracking || 'KW-CHAT-2026',
       serviceTitle: request?.title || 'Mission KWABO Bénin',
+      downloadPath,
     });
   };
 
@@ -172,12 +176,12 @@ export default function ChatScreen() {
                         styles.imageBubbleCard,
                         isClient ? styles.imageBubbleCardClient : styles.imageBubbleCardKwabo,
                       ]}
-                      onPress={() => handleOpenAttachedFile(fileName, fileSize, msg.fileUri)}
+                      onPress={() => handleOpenAttachedFile(fileName, fileSize, msg.attachmentPath)}
                       activeOpacity={0.88}
                     >
                       <View style={styles.thumbnailContainer}>
                         <Image
-                          source={msg.fileUri ? { uri: msg.fileUri } : PHOTOS['chantier']}
+                          source={msg.attachmentPath ? authImageSource(msg.attachmentPath) : msg.fileUri ? { uri: msg.fileUri } : PHOTOS['chantier']}
                           style={styles.thumbnailImage}
                           resizeMode="cover"
                         />
@@ -225,7 +229,7 @@ export default function ChatScreen() {
                         styles.fileBubble,
                         isClient ? styles.fileBubbleClient : styles.fileBubbleKwabo,
                       ]}
-                      onPress={() => handleOpenAttachedFile(fileName, fileSize, msg.fileUri)}
+                      onPress={() => handleOpenAttachedFile(fileName, fileSize, msg.attachmentPath)}
                       activeOpacity={0.88}
                     >
                       <View style={[styles.fileIconBox, isPdf && styles.pdfIconBox]}>

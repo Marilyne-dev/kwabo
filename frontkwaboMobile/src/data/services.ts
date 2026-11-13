@@ -14,6 +14,7 @@ export interface ServiceItem {
   name: string;
   icon: string;
   popular?: boolean;
+  available?: boolean;
   price: string;
   short: string;
   included: string[];

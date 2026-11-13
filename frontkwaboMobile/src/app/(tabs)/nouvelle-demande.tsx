@@ -16,7 +16,10 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { COLORS, RADIUS, SHADOWS, SPACING } from '@/constants/theme';
 import { useApp } from '@/context/AppContext';
-import { SERVICES, ServiceItem, FormField } from '@/data/services';
+import { ServiceItem, FormField } from '@/data/services';
+import * as DocumentPicker from 'expo-document-picker';
+import { getFirstValidationError } from '@/services/api';
+import type { PickedFile } from '@/services/requests';
 import { CITIES } from '@/data/categories';
 import { Header } from '@/components/common/Header';
 import { Button } from '@/components/common/Button';
@@ -26,13 +29,15 @@ import { PHOTOS, SERVICE_PHOTOS } from '@/constants/photos';
 export default function NouvelleDemandeScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ service?: string }>();
-  const { createRequest, user, notify } = useApp();
+  const { createRequest, services, notify } = useApp();
 
   const [selectedService, setSelectedService] = useState<ServiceItem | null>(null);
   const [city, setCity] = useState(CITIES[0]);
   const [description, setDescription] = useState('');
   const [urgency, setUrgency] = useState<'normal' | 'urgent'>('normal');
   const [dynamicFields, setDynamicFields] = useState<Record<string, string>>({});
+  const [files, setFiles] = useState<Record<string, PickedFile>>({});
+  const [submitting, setSubmitting] = useState(false);
   const [isSubmitted, setIsSubmitted] = useState(false);
   const [createdTracking, setCreatedTracking] = useState('');
 
@@ -69,14 +74,29 @@ export default function NouvelleDemandeScreen() {
 
   useEffect(() => {
     if (params.service) {
-      const found = SERVICES.find((s) => s.id === params.service);
+      const found = services.find((s) => s.id === params.service);
       if (found) setSelectedService(found);
     }
-  }, [params.service]);
+  }, [params.service, services]);
+
+  const pickFile = async (f: FormField) => {
+    const res = await DocumentPicker.getDocumentAsync({
+      type: ['application/pdf', 'image/jpeg', 'image/png'],
+      copyToCacheDirectory: true,
+    });
+    if (res.canceled || !res.assets?.length) return;
+    const a = res.assets[0];
+    if (a.size && a.size > 10 * 1024 * 1024) {
+      Alert.alert('Fichier trop lourd', '10 Mo maximum (PDF, JPG ou PNG).');
+      return;
+    }
+    setFiles((prev) => ({ ...prev, [f.name]: { uri: a.uri, name: a.name, type: a.mimeType || 'application/octet-stream' } }));
+  };
 
   const handleSelectService = (service: ServiceItem) => {
     setSelectedService(service);
     setDynamicFields({});
+    setFiles({});
   };
 
   const handleFieldChange = (f: FormField, value: string) => {
@@ -91,41 +111,52 @@ export default function NouvelleDemandeScreen() {
     setDynamicFields((prev) => ({ ...prev, [f.name]: cleanVal }));
   };
 
-  const handleSubmit = () => {
-    if (!selectedService) return;
+  const handleSubmit = async () => {
+    if (!selectedService || submitting) return;
 
     if (!description.trim()) {
       Alert.alert('Champs requis', 'Veuillez préciser brièvement votre besoin dans la description.');
       return;
     }
-
-    const newReq = createRequest({
-      userId: user?.id || 'u01',
-      serviceId: selectedService.id,
-      status: 'pending',
-      title: `${selectedService.name} - ${city}`,
-      city,
-      urgency,
-      budget: selectedService.price,
-      description: description.trim(),
-      details: dynamicFields,
-      quote: null,
-    });
-
-    notify(
-      'Demande transmise avec succès',
-      `Votre demande « ${newReq.title} » est enregistrée sous le N° ${newReq.tracking}. Notre équipe prépare votre devis sous 24h.`,
-      'success'
+    const missing = selectedService.fields.find(
+      (f) => f.required && (f.type === 'file' ? !files[f.name] : !dynamicFields[f.name]?.trim())
     );
+    if (missing) {
+      Alert.alert('Champ requis', `Merci de renseigner : ${missing.label}`);
+      return;
+    }
 
-    setCreatedTracking(newReq.tracking);
-    setIsSubmitted(true);
+    setSubmitting(true);
+    try {
+      const newReq = await createRequest({
+        service: selectedService.id,
+        title: `${selectedService.name} - ${city}`,
+        city,
+        urgency,
+        description: description.trim(),
+        details: dynamicFields,
+        files,
+      });
+
+      notify(
+        'Demande transmise avec succès',
+        `Votre demande « ${newReq.title} » est enregistrée sous le N° ${newReq.tracking}. Notre équipe prépare votre devis sous 24h.`,
+        'success'
+      );
+      setCreatedTracking(newReq.tracking);
+      setIsSubmitted(true);
+    } catch (e) {
+      Alert.alert('Envoi impossible', getFirstValidationError(e, "La demande n'a pas pu être envoyée."));
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   const handleReset = () => {
     setSelectedService(null);
     setDescription('');
     setDynamicFields({});
+    setFiles({});
     setIsSubmitted(false);
   };
 
@@ -196,7 +227,7 @@ export default function NouvelleDemandeScreen() {
               </Text>
 
               <View style={styles.servicesList}>
-                {SERVICES.map((srv) => {
+                {services.map((srv) => {
                   const photoKey = SERVICE_PHOTOS[srv.id] || 'chantier';
                   return (
                     <TouchableOpacity
@@ -276,7 +307,13 @@ export default function NouvelleDemandeScreen() {
                         </Text>
                       )}
                     </View>
-                    {f.type === 'select' && f.options ? (
+                    {f.type === 'file' ? (
+                      <TouchableOpacity style={styles.textInput} onPress={() => pickFile(f)} activeOpacity={0.8}>
+                        <Text style={{ color: files[f.name] ? COLORS.text : COLORS.muted, paddingVertical: 12 }} numberOfLines={1}>
+                          {files[f.name]?.name || 'Choisir un fichier (PDF, JPG, PNG — 10 Mo max)'}
+                        </Text>
+                      </TouchableOpacity>
+                    ) : f.type === 'select' && f.options ? (
                       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.cityScroll}>
                         {f.options.map((opt) => {
                           const isSelected = dynamicFields[f.name] === opt;

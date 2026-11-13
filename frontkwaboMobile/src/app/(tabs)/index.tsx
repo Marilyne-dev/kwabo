@@ -15,7 +15,6 @@ import { Ionicons } from '@expo/vector-icons';
 import { COLORS, RADIUS, SHADOWS, SPACING } from '@/constants/theme';
 import { useApp } from '@/context/AppContext';
 import { CATEGORIES } from '@/data/categories';
-import { SERVICES } from '@/data/services';
 import { WhatsAppButton } from '@/components/common/WhatsAppButton';
 import { Badge } from '@/components/common/Badge';
 import { NotificationBell } from '@/components/common/NotificationBell';
@@ -23,7 +22,7 @@ import { PHOTOS, SERVICE_PHOTOS, CATEGORY_PHOTOS, DOCUMENT_PHOTOS } from '@/cons
 
 export default function HomeScreen() {
   const router = useRouter();
-  const { user, requests, documents, unreadNotificationsCount } = useApp();
+  const { user, requests, documents, unreadNotificationsCount, services } = useApp();
 
   const totalCount = requests.length;
   const pendingCount = requests.filter((r) => r.status === 'pending').length;
@@ -31,7 +30,7 @@ export default function HomeScreen() {
   const doneCount = requests.filter((r) => r.status === 'done').length;
 
   const activeRequest = requests.find((r) => r.status === 'active');
-  const popularServices = SERVICES.filter((s) => s.popular);
+  const popularServices = services.filter((s) => s.popular);
 
   return (
     <View style={styles.container}>

@@ -14,6 +14,8 @@ export interface DocumentDownloadData {
   serviceTitle?: string;
   notes?: string;
   amount?: string;
+  /** chemin API (/documents/5/download) : téléchargement réel avec le jeton */
+  downloadPath?: string;
 }
 
 /**

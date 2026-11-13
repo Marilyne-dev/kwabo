@@ -8,6 +8,7 @@ import {
   Image,
   ActivityIndicator,
   Platform,
+  Alert,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { COLORS, RADIUS, SHADOWS, SPACING } from '@/constants/theme';
@@ -18,6 +19,7 @@ import {
   downloadPdfDocument,
   downloadMediaFile,
 } from '@/utils/documentDownloader';
+import { authImageSource, downloadAuthFile } from '@/services/files';
 
 interface DocumentModalProps {
   visible: boolean;
@@ -34,14 +36,17 @@ export function DocumentModal({ visible, document, onClose }: DocumentModalProps
   const isVideo = document.type === 'video';
   const isPhoto = document.type === 'photo';
   const isMedia = isVideo || isPhoto;
-  const photoKey = DOCUMENT_PHOTOS[document.id] || (isMedia ? 'chantier-tour' : null);
+  const realPhoto = !!document.downloadPath && isPhoto;
+  const photoKey = document.downloadPath ? null : DOCUMENT_PHOTOS[document.id] || (isMedia ? 'chantier-tour' : null);
 
   const handleDownload = async () => {
     setDownloading(true);
     setDownloadSuccess(false);
 
     try {
-      if (isMedia) {
+      if (document.downloadPath) {
+        await downloadAuthFile(document.downloadPath, document.name);
+      } else if (isMedia) {
         await downloadMediaFile(document);
       } else {
         await downloadPdfDocument(document);
@@ -49,7 +54,7 @@ export function DocumentModal({ visible, document, onClose }: DocumentModalProps
       setDownloadSuccess(true);
       setTimeout(() => setDownloadSuccess(false), 3000);
     } catch {
-      // Handled in utility
+      Alert.alert('Téléchargement impossible', 'Le fichier n’a pas pu être récupéré. Réessayez.');
     } finally {
       setDownloading(false);
     }
@@ -124,7 +129,11 @@ export function DocumentModal({ visible, document, onClose }: DocumentModalProps
 
           {/* ZONE DE PRÉVISUALISATION (.m-viewer) */}
           <View style={styles.viewer}>
-            {photoKey && PHOTOS[photoKey] ? (
+            {realPhoto ? (
+              <View style={styles.mediaContainer}>
+                <Image source={authImageSource(document.downloadPath!)} style={styles.viewerImage} resizeMode="cover" />
+              </View>
+            ) : photoKey && PHOTOS[photoKey] ? (
               <View style={styles.mediaContainer}>
                 <Image
                   source={PHOTOS[photoKey]}

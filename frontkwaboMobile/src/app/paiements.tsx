@@ -1,4 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useCallback } from 'react';
+import { useFocusEffect } from 'expo-router';
+import { getFirstValidationError } from '@/services/api';
 import {
   View,
   Text,
@@ -16,40 +18,61 @@ import { Button } from '@/components/common/Button';
 import { DocumentModal } from '@/components/common/DocumentModal';
 import { DocumentDownloadData } from '@/utils/documentDownloader';
 
-export default function PaiementsScreen() {
-  const { requests, notify } = useApp();
-  const [selectedDoc, setSelectedDoc] = useState<DocumentDownloadData | null>(null);
+const METHOD_LABEL: Record<string, string> = { card: 'Carte bancaire', momo: 'Mobile Money', wise: 'Virement Wise' };
 
-  const handleOpenInvoice = (title: string, amount: string, date: string, ref: string) => {
+export default function PaiementsScreen() {
+  const { invoices, invoicesMeta, refreshInvoices, payInvoice, notify, user } = useApp();
+  const [selectedDoc, setSelectedDoc] = useState<DocumentDownloadData | null>(null);
+  const [payingId, setPayingId] = useState<string | null>(null);
+
+  useFocusEffect(
+    useCallback(() => {
+      refreshInvoices();
+    }, [refreshInvoices])
+  );
+
+  const dueInvoices = invoices.filter((i) => i.status === 'due');
+  const paidInvoices = invoices.filter((i) => i.status === 'paid' || i.status === 'refunded');
+
+  const handleOpenInvoice = (inv: (typeof invoices)[number]) => {
     setSelectedDoc({
-      id: ref,
-      name: `Facture acquittée - ${title}.pdf`,
+      id: inv.number || inv.id,
+      name: `Facture ${inv.number} - ${inv.title}.pdf`,
       type: 'invoice',
-      date,
-      size: '220 Ko',
-      reference: ref,
-      serviceTitle: title,
-      amount,
+      date: inv.paidAt || inv.createdAt,
+      reference: inv.number,
+      serviceTitle: inv.title,
+      clientName: user ? `${user.firstName} ${user.lastName}` : undefined,
+      amount: `${inv.amount} €`,
     });
   };
 
-  const handlePay = (amount: number, title: string) => {
+  const doPay = async (id: string, amount: number, title: string, method: 'card' | 'momo' | 'wise') => {
+    setPayingId(id);
+    try {
+      await payInvoice(id, method);
+      notify(
+        'Paiement validé avec succès',
+        `Votre règlement de ${amount} € pour « ${title} » a été confirmé. La mission démarre.`,
+        'payment'
+      );
+    } catch (e) {
+      Alert.alert('Paiement impossible', getFirstValidationError(e, 'Le paiement a échoué. Réessayez.'));
+    } finally {
+      setPayingId(null);
+    }
+  };
+
+  const handlePay = (id: string, amount: number, title: string) => {
     Alert.alert(
       'Règlement sécurisé',
-      `Valider le règlement de ${amount} € pour :\n« ${title} »\n\nMoyens acceptés :\n• Carte bancaire (Stripe 3D Secure)\n• Mobile Money (MTN / Moov Bénin)\n• Virement bancaire`,
+      `Régler ${amount} € pour :\n« ${title} »\n\nChoisissez le moyen de paiement.`,
       [
-        {
-          text: 'Payer maintenant',
-          onPress: () => {
-            notify(
-              'Paiement validé avec succès',
-              `Votre règlement de ${amount} € pour « ${title} » a été confirmé. La mission démarre immédiatement.`,
-              'payment'
-            );
-          },
-        },
-        { text: 'Annuler', style: 'cancel' },
-      ]
+        { text: METHOD_LABEL.card, onPress: () => doPay(id, amount, title, 'card') },
+        { text: METHOD_LABEL.momo, onPress: () => doPay(id, amount, title, 'momo') },
+        { text: METHOD_LABEL.wise, onPress: () => doPay(id, amount, title, 'wise') },
+      ],
+      { cancelable: true }
     );
   };
 
@@ -65,112 +88,75 @@ export default function PaiementsScreen() {
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
-        {/* TOTAL RÉCAP */}
         <View style={styles.summaryCard}>
           <Text style={styles.summaryLabel}>Total des prestations réglées</Text>
-          <Text style={styles.summaryAmount}>215 €</Text>
+          <Text style={styles.summaryAmount}>{invoicesMeta.paidTotal} €</Text>
           <View style={styles.badgeSecure}>
             <Ionicons name="lock-closed" size={12} color={COLORS.green} />
-            <Text style={styles.badgeSecureText}>Paiements chiffrés SSL / Stripe</Text>
+            <Text style={styles.badgeSecureText}>Paiements sécurisés</Text>
           </View>
         </View>
 
-        {/* DEVIS EN ATTENTE DE RÈGLEMENT */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Devis en attente d'accord</Text>
-
-          {requests
-            .filter((r) => r.status === 'pending' && r.quote)
-            .map((req) => (
-              <View key={req.id} style={styles.quoteCard}>
-                <View style={styles.quoteTop}>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.quoteTitle}>{req.title}</Text>
-                    <Text style={styles.quoteRef}>Réf : {req.tracking}</Text>
-                  </View>
-                  <Text style={styles.quotePrice}>{req.quote?.amount} €</Text>
+          <Text style={styles.sectionTitle}>Devis en attente de règlement</Text>
+          {dueInvoices.length === 0 && (
+            <Text style={styles.quoteDetail}>Aucun règlement en attente.</Text>
+          )}
+          {dueInvoices.map((inv) => (
+            <View key={inv.id} style={styles.quoteCard}>
+              <View style={styles.quoteTop}>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.quoteTitle}>{inv.title}</Text>
+                  <Text style={styles.quoteRef}>Réf : {inv.tracking} · {inv.number}</Text>
                 </View>
-
-                <Text style={styles.quoteDetail}>
-                  Prestation : {req.quote?.label}
-                </Text>
-
-                <View style={styles.quoteActions}>
-                  <Button
-                    title="Valider et régler"
-                    onPress={() => handlePay(req.quote!.amount, req.title)}
-                    variant="primary"
-                    size="md"
-                    fullWidth
-                  />
-                </View>
+                <Text style={styles.quotePrice}>{inv.amount} €</Text>
               </View>
-            ))}
+              <Text style={styles.quoteDetail}>Prestation : {inv.label}</Text>
+              <View style={styles.quoteActions}>
+                <Button
+                  title={payingId === inv.id ? 'Paiement en cours…' : 'Valider et régler'}
+                  onPress={() => handlePay(inv.id, inv.amount, inv.title)}
+                  disabled={payingId !== null}
+                  variant="primary"
+                  size="md"
+                  fullWidth
+                />
+              </View>
+            </View>
+          ))}
         </View>
 
-        {/* FACTURES ET PAIEMENTS ACQUITTÉS */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Factures & Règlements validés</Text>
-
-          <View style={styles.invoiceCard}>
-            <View style={styles.invoiceHeader}>
-              <View>
-                <Text style={styles.invoiceTitle}>Suivi villa Abomey-Calavi</Text>
-                <Text style={styles.invoiceDate}>17 janv. 2026 · Carte bancaire</Text>
+          {paidInvoices.length === 0 && (
+            <Text style={styles.quoteDetail}>Aucune facture réglée pour le moment.</Text>
+          )}
+          {paidInvoices.map((inv) => (
+            <View key={inv.id} style={styles.invoiceCard}>
+              <View style={styles.invoiceHeader}>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.invoiceTitle}>{inv.title}</Text>
+                  <Text style={styles.invoiceDate}>
+                    {inv.paidAt || inv.createdAt}
+                    {inv.method ? ` · ${METHOD_LABEL[inv.method] || inv.method}` : ''}
+                  </Text>
+                </View>
+                <Text style={styles.invoiceAmount}>{inv.amount} €</Text>
               </View>
-              <Text style={styles.invoiceAmount}>160 €</Text>
-            </View>
-            <View style={styles.invoiceFooter}>
-              <View style={styles.paidBadge}>
-                <Ionicons name="checkmark-circle" size={14} color="#27AE60" />
-                <Text style={styles.paidText}>Payé</Text>
+              <View style={styles.invoiceFooter}>
+                <View style={styles.paidBadge}>
+                  <Ionicons name="checkmark-circle" size={14} color="#27AE60" />
+                  <Text style={styles.paidText}>{inv.status === 'refunded' ? 'Remboursé' : 'Payé'}</Text>
+                </View>
+                <TouchableOpacity onPress={() => handleOpenInvoice(inv)}>
+                  <Text style={styles.downloadInvoice}>Facture PDF ↓</Text>
+                </TouchableOpacity>
               </View>
-              <TouchableOpacity
-                onPress={() =>
-                  handleOpenInvoice(
-                    'Suivi villa Abomey-Calavi',
-                    '160 €',
-                    '17 janv. 2026',
-                    'FACT-2026-0042'
-                  )
-                }
-              >
-                <Text style={styles.downloadInvoice}>Facture PDF ↓</Text>
-              </TouchableOpacity>
             </View>
-          </View>
-
-          <View style={styles.invoiceCard}>
-            <View style={styles.invoiceHeader}>
-              <View>
-                <Text style={styles.invoiceTitle}>Acte de naissance légalisé</Text>
-                <Text style={styles.invoiceDate}>11 déc. 2025 · Virement</Text>
-              </View>
-              <Text style={styles.invoiceAmount}>55 €</Text>
-            </View>
-            <View style={styles.invoiceFooter}>
-              <View style={styles.paidBadge}>
-                <Ionicons name="checkmark-circle" size={14} color="#27AE60" />
-                <Text style={styles.paidText}>Payé</Text>
-              </View>
-              <TouchableOpacity
-                onPress={() =>
-                  handleOpenInvoice(
-                    'Acte de naissance légalisé',
-                    '55 €',
-                    '11 déc. 2025',
-                    'FACT-2025-0189'
-                  )
-                }
-              >
-                <Text style={styles.downloadInvoice}>Facture PDF ↓</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
+          ))}
         </View>
       </ScrollView>
 
-      {/* MODAL TÉLÉCHARGEMENT FACTURE */}
       <DocumentModal
         visible={!!selectedDoc}
         document={selectedDoc}

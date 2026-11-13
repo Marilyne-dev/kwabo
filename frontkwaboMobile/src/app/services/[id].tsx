@@ -11,7 +11,7 @@ import { useRouter, useLocalSearchParams } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { COLORS, RADIUS, SHADOWS, SPACING } from '@/constants/theme';
-import { SERVICES } from '@/data/services';
+import { useApp } from '@/context/AppContext';
 import { Header } from '@/components/common/Header';
 import { Button } from '@/components/common/Button';
 import { PHOTOS, SERVICE_PHOTOS } from '@/constants/photos';
@@ -20,7 +20,8 @@ export default function ServiceDetailScreen() {
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id: string }>();
 
-  const service = SERVICES.find((s) => s.id === id) || SERVICES[0];
+  const { services } = useApp();
+  const service = services.find((s) => s.id === id) || services[0];
 
   const handleOrder = () => {
     router.push(`/(tabs)/nouvelle-demande?service=${service.id}`);
