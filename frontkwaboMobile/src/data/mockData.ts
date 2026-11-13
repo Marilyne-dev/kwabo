@@ -9,6 +9,7 @@ export interface User {
   referralCode: string;
   emailVerified?: boolean;
   twoFactorEnabled?: boolean;
+  notificationPrefs?: Record<string, boolean>;
 }
 
 export interface RequestItem {
@@ -26,6 +27,8 @@ export interface RequestItem {
   quote?: { amount: number; label: string } | null;
   createdAt: string;
   history: Array<{ at: string; text: string }>;
+  operatorName?: string;
+  review?: { rating: number; comment?: string; status?: string } | null;
 }
 
 export interface MessageItem {

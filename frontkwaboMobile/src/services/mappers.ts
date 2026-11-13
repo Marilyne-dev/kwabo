@@ -13,6 +13,7 @@ export function mapUser(u: any): User {
     referralCode: u.referral_code ?? '',
     emailVerified: !!u.email_verified,
     twoFactorEnabled: !!u.two_factor_enabled,
+    notificationPrefs: u.notification_prefs ?? undefined,
   };
 }
 
@@ -77,6 +78,8 @@ export function mapRequest(r: any): RequestItem {
     quote: r.quote ? { amount: Number(r.quote.amount), label: r.quote.label ?? '' } : null,
     createdAt: formatDate(r.created_at),
     history: (r.history ?? []).map((h: any) => ({ at: formatDate(h.at), text: h.text })),
+    operatorName: r.operator?.full_name ?? r.operator?.name ?? undefined,
+    review: r.review ? { rating: Number(r.review.rating), comment: r.review.comment ?? undefined, status: r.review.status } : r.rating ? { rating: Number(r.rating) } : null,
   };
 }
 

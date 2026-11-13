@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -7,6 +7,9 @@ import {
   TouchableOpacity,
   Alert,
   Image,
+  TextInput,
+  StyleSheet as RNStyleSheet,
+  ActivityIndicator,
 } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -18,15 +21,76 @@ import { Badge } from '@/components/common/Badge';
 import { Button } from '@/components/common/Button';
 import { PHOTOS, SERVICE_PHOTOS } from '@/constants/photos';
 import { DocumentModal } from '@/components/common/DocumentModal';
+import { fetchRequest } from '@/services/requests';
+import { reviewRequest } from '@/services/profile';
+import { getFirstValidationError } from '@/services/api';
+import type { RequestItem } from '@/data/mockData';
 
 export default function DemandeDetailScreen() {
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id: string }>();
-  const { requests, documents } = useApp();
+  const { requests, documents, cancelRequest } = useApp();
   const [selectedDoc, setSelectedDoc] = useState<any | null>(null);
+  const [detail, setDetail] = useState<RequestItem | null>(null);
+  const [rating, setRating] = useState(0);
+  const [comment, setComment] = useState('');
+  const [busy, setBusy] = useState(false);
 
-  const request = requests.find((r) => r.id === id) || requests[0];
+  // Détail frais depuis l'API (chargé de mission, avis, historique complet)
+  useEffect(() => {
+    if (id) fetchRequest(String(id)).then(setDetail).catch(() => {});
+  }, [id]);
+
+  const request = detail ?? requests.find((r) => r.id === id);
+
+  if (!request) {
+    return (
+      <SafeAreaView style={styles.safeContainer} edges={['top']}>
+        <Header title="Demande" showBack />
+        <ActivityIndicator color={COLORS.green} style={{ marginTop: 40 }} />
+      </SafeAreaView>
+    );
+  }
+
   const relatedDocs = documents.filter((d) => d.requestId === request.id);
+
+  const handleCancel = () => {
+    Alert.alert('Annuler la demande', `Voulez-vous vraiment annuler « ${request.title} » ?`, [
+      { text: 'Non', style: 'cancel' },
+      {
+        text: 'Oui, annuler',
+        style: 'destructive',
+        onPress: async () => {
+          setBusy(true);
+          try {
+            await cancelRequest(request.id);
+            router.back();
+          } catch (e) {
+            Alert.alert('Annulation impossible', getFirstValidationError(e));
+          } finally {
+            setBusy(false);
+          }
+        },
+      },
+    ]);
+  };
+
+  const handleReview = async () => {
+    if (rating < 1) {
+      Alert.alert('Votre note', 'Choisissez une note de 1 à 5 étoiles.');
+      return;
+    }
+    setBusy(true);
+    try {
+      await reviewRequest(request.id, rating, comment.trim());
+      setDetail(await fetchRequest(request.id));
+      Alert.alert('Merci !', 'Votre avis a été envoyé. Il sera publié après modération.');
+    } catch (e) {
+      Alert.alert('Envoi impossible', getFirstValidationError(e));
+    } finally {
+      setBusy(false);
+    }
+  };
 
   if (!request) {
     return (
@@ -184,8 +248,8 @@ export default function DemandeDetailScreen() {
           </View>
           <View style={styles.operatorInfo}>
             <Text style={styles.operatorRole}>Chargé de mission KWABO</Text>
-            <Text style={styles.operatorName}>Maxime Dossou</Text>
-            <Text style={styles.operatorPlace}>Basé à Cotonou, Bénin</Text>
+            <Text style={styles.operatorName}>{request.operatorName || 'Attribution en cours'}</Text>
+            <Text style={styles.operatorPlace}>{request.operatorName ? 'Équipe KWABO au Bénin' : 'Un chargé de mission va vous être attribué'}</Text>
           </View>
           <TouchableOpacity
             style={styles.chatButton}
@@ -194,6 +258,46 @@ export default function DemandeDetailScreen() {
             <Ionicons name="chatbubble-ellipses" size={20} color="#FFFFFF" />
           </TouchableOpacity>
         </View>
+
+        {/* AVIS (mission terminée) */}
+        {request.status === 'done' && (
+          <View style={styles.card}>
+            <Text style={styles.cardSectionTitle}>Votre avis</Text>
+            {request.review ? (
+              <View>
+                <Text style={xs.stars}>{'★'.repeat(request.review.rating)}{'☆'.repeat(5 - request.review.rating)}</Text>
+                {!!request.review.comment && <Text style={xs.comment}>{request.review.comment}</Text>}
+                {request.review.status === 'pending' && <Text style={xs.hint}>En attente de modération</Text>}
+              </View>
+            ) : (
+              <View>
+                <View style={{ flexDirection: 'row', gap: 6, marginBottom: 10 }}>
+                  {[1, 2, 3, 4, 5].map((n) => (
+                    <TouchableOpacity key={n} onPress={() => setRating(n)} hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}>
+                      <Text style={[xs.star, { color: n <= rating ? COLORS.goldText : COLORS.border }]}>★</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+                <TextInput
+                  style={xs.input}
+                  placeholder="Un commentaire (facultatif)"
+                  placeholderTextColor={COLORS.muted}
+                  value={comment}
+                  onChangeText={setComment}
+                  multiline
+                />
+                <Button title={busy ? 'Envoi…' : 'Envoyer mon avis'} onPress={handleReview} disabled={busy} variant="primary" size="md" fullWidth />
+              </View>
+            )}
+          </View>
+        )}
+
+        {/* ANNULATION */}
+        {(request.status === 'pending' || request.status === 'active') && (
+          <TouchableOpacity onPress={handleCancel} disabled={busy} style={{ alignItems: 'center', paddingVertical: 8 }}>
+            <Text style={{ color: COLORS.terracotta, fontWeight: '700', fontSize: 14 }}>Annuler cette demande</Text>
+          </TouchableOpacity>
+        )}
 
         {/* DOCUMENTS ET PHOTOS ASSOCIÉS */}
         <View style={styles.card}>
@@ -251,6 +355,14 @@ export default function DemandeDetailScreen() {
     </SafeAreaView>
   );
 }
+
+const xs = RNStyleSheet.create({
+  star: { fontSize: 32 },
+  stars: { fontSize: 24, color: '#D4A017', marginBottom: 6 },
+  comment: { fontSize: 14, color: '#1E2320', lineHeight: 20 },
+  hint: { fontSize: 12, color: '#6E7671', marginTop: 6 },
+  input: { backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: '#E5E1DA', borderRadius: 12, minHeight: 70, padding: 12, fontSize: 14, marginBottom: 12, textAlignVertical: 'top' },
+});
 
 const styles = StyleSheet.create({
   safeContainer: {

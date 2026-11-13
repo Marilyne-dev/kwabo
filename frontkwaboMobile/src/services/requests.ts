@@ -19,8 +19,17 @@ export interface NewRequestInput {
 }
 
 export async function fetchRequests(): Promise<RequestItem[]> {
-  const res = await api('/requests', { params: { per_page: 200 } });
-  return (res.data ?? []).map(mapRequest);
+  // Pagination par défaut du serveur (per_page peut être refusé en 422) : on lit toutes les pages.
+  const out: RequestItem[] = [];
+  let page = 1;
+  let last = 1;
+  do {
+    const res = await api('/requests', { params: { page: page > 1 ? page : undefined } });
+    out.push(...(res.data ?? []).map(mapRequest));
+    last = Number(res.meta?.last_page ?? 1);
+    page++;
+  } while (page <= last && page <= 25);
+  return out;
 }
 
 export async function fetchRequest(id: string): Promise<RequestItem> {

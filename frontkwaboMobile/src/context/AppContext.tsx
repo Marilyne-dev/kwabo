@@ -35,6 +35,7 @@ interface AppContextType {
   verifyEmail: (email: string, code: string) => Promise<void>;
   resendVerification: (email: string) => Promise<void>;
   logout: () => Promise<void>;
+  updateUser: (u: User) => void;
   // catalogue
   services: ServiceItem[];
   // demandes
@@ -261,6 +262,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     <AppContext.Provider
       value={{
         user, authReady, login, register, verifyEmail, resendVerification, logout,
+        updateUser: setUser,
         services,
         requests, requestsLoading, refreshRequests, createRequest, cancelRequest,
         messages, threads, unreadMessagesCount, loadMessages, refreshThreads, sendMessage,
